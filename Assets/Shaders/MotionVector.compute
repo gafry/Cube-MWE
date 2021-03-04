@@ -1,0 +1,36 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel MotionVector
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> Position;
+RWTexture2D<float4> MotionVectorOutput;
+float4x4 PrevViewProj;
+float CameraX;
+float CameraY;
+
+inline float2 ClipSpaceToTexturePosition(in float4 clipSpacePosition)
+{
+    float3 NDCposition = clipSpacePosition.xyz / clipSpacePosition.w;   // Perspective divide to get Normal Device Coordinates: {[-1,1], [-1,1], (0, 1]}
+    float2 texturePosition = (NDCposition.xy + 1) * 0.5f;               // [-1,1] -> [0, 1]
+    return texturePosition;
+}
+
+[numthreads(size_x, size_y, 1)]
+void MotionVector(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    // Calculate screen space position of the hit in the previous frame
+    float4 prevFrameClipSpacePosition = mul(PrevViewProj, float4(Position.Load(dispatchThreadId).xyz, 1));
+    float2 prevFrameScreenPositionNormalized = ClipSpaceToTexturePosition(prevFrameClipSpacePosition);
+    float2 prevFrameScreenPosition = prevFrameScreenPositionNormalized * float2(CameraX, CameraY);
+
+    float2 curFrameScreenPosition = dispatchThreadId.xy;   
+
+    // if primary ray missed, set all components to 0
+    float miss = Position.Load(dispatchThreadId).w;
+    MotionVectorOutput[dispatchThreadId.xy] = float4((curFrameScreenPosition.x - prevFrameScreenPosition.x) * miss, (curFrameScreenPosition.y - prevFrameScreenPosition.y) * miss, 0, miss);
+}

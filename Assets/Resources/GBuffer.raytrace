@@ -1,0 +1,56 @@
+﻿#pragma max_recursion_depth 11
+
+#include "./../Shaders/Common.hlsl"
+
+RWTexture2D<float4> _OutputTarget;
+RWTexture2D<float4> _OutputTarget2;
+RWTexture2D<float4> _OutputTarget3;
+
+inline float3 BackgroundColor(float3 origin, float3 direction)
+{
+	float t = 0.5f * (direction.y + 1.0f);
+	return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
+}
+
+[shader("raygeneration")]
+void NormalsRaygenShader()
+{
+	const uint2 dispatchIdx = DispatchRaysIndex().xy;
+	
+    float3 origin;
+	float3 direction;
+
+	GenerateCameraRay(origin, direction);
+
+	RayDesc rayDescriptor;
+	rayDescriptor.Origin = origin;
+	rayDescriptor.Direction = direction;
+	rayDescriptor.TMin = 1e-5f;
+	rayDescriptor.TMax = _CameraFarDistance;
+
+	// Create and init the ray payload
+	RayPayloadNormals rayPayload;
+	rayPayload.normalAndId = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	rayPayload.worldPosition = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	rayPayload.albedo = float3(0.0f, 0.0f, 0.0f);
+
+	TraceRay(_AccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, rayDescriptor, rayPayload);
+
+	_OutputTarget[dispatchIdx] = rayPayload.normalAndId;
+	_OutputTarget2[dispatchIdx] = rayPayload.worldPosition;
+	_OutputTarget3[dispatchIdx] = float4(rayPayload.albedo, 1.0f);
+}
+
+[shader("miss")]
+void MissShader(inout RayPayloadNormals rayPayload : SV_RayPayload)
+{
+	float3 origin = WorldRayOrigin();
+	float3 direction = WorldRayDirection();
+	rayPayload.albedo = float4(BackgroundColor(origin, direction), 0.0f);
+}
+
+[shader("anyhit")]
+void AnyHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+{
+	AcceptHitAndEndSearch();
+}

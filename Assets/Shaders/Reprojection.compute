@@ -1,0 +1,52 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Reprojection
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> MotionVectorOutput;
+Texture2D<float4> CurrentFrame;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> GBufferAlbedo;
+RWTexture2D<float4> LastFrame;
+RWTexture2D<float4> ReprojectedOutput;
+RWTexture2D<float4> PrevGBufferNormals;
+
+// Declare one thread for each texel of the current block size.
+[numthreads(size_x, size_y, 1)]
+void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 motionVector = MotionVectorOutput.Load(dispatchThreadId);
+    float4 currentNormalsandIds = GBufferNormals.Load(dispatchThreadId);
+    float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
+
+    // if primary ray miss, MotionVectorOutput.w is set to 0 -> there are no data to reproject
+    if (MotionVectorOutput.Load(dispatchThreadId).w < 0.01)
+    {
+        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
+        LastFrame[dispatchThreadId.xy] = currentFrameColor;
+        PrevGBufferNormals[dispatchThreadId.xy] = currentNormalsandIds;
+        return;
+    }
+
+    // calculate last frame position based on motion vector and get last frame color
+    float2 lastFramePosition = float2(dispatchThreadId.x - motionVector.x, dispatchThreadId.y - motionVector.y);
+    float4 lastFrameColor = LastFrame.Load(lastFramePosition);
+    
+    // check normals and object IDs (object IDs are saved in currentNormalsandIds.w)
+    float4 normalsCheck = abs(currentNormalsandIds - PrevGBufferNormals.Load(lastFramePosition));
+    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && normalsCheck.w < 0.1)
+    {
+        ReprojectedOutput[dispatchThreadId.xy] = 0.2f * currentFrameColor + 0.8f * lastFrameColor;
+    }
+    else
+    {
+        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
+    }
+
+    LastFrame[dispatchThreadId.xy] = ReprojectedOutput[dispatchThreadId.xy];
+    PrevGBufferNormals[dispatchThreadId.xy] = currentNormalsandIds;
+}
