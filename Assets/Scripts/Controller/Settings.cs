@@ -9,6 +9,8 @@ public class Settings : MonoBehaviour
     public bool groundTruthIfThereIsNoMotion = true;
     public bool rayTracingOn = true;
     public bool reprojectionOn = false;
+    public bool filtering = false;
+    public bool combineAlbedoAndShadows = false;
     public int depthOfRecursion = 2;
 
     public bool cameraMoved = false;

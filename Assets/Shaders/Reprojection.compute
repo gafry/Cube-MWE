@@ -24,11 +24,9 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
 
     // if primary ray miss, MotionVectorOutput.w is set to 0 -> there are no data to reproject
-    if (MotionVectorOutput.Load(dispatchThreadId).w < 0.01)
+    if (motionVector.w < 0.01)
     {
         ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
-        LastFrame[dispatchThreadId.xy] = currentFrameColor;
-        PrevGBufferNormals[dispatchThreadId.xy] = currentNormalsandIds;
         return;
     }
 
@@ -46,7 +44,4 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
     }
-
-    LastFrame[dispatchThreadId.xy] = ReprojectedOutput[dispatchThreadId.xy];
-    PrevGBufferNormals[dispatchThreadId.xy] = currentNormalsandIds;
 }

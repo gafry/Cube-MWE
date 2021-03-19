@@ -1,0 +1,133 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel ATrous5x5
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> ShadowInput;
+Texture2D<float4> Position;
+Texture2D<float4> GBufferNormals;
+RWTexture2D<float4> FilteredOutput;
+float CameraX;
+float CameraY;
+float StepWidth;
+float ShadowPhi = 4.0f;
+float PositionPhi = 0.5f;
+float NormalPhi = 0.5f;
+
+static const float aTrousFilter[3][3] =
+{
+    0.0625, 0.125, 0.0625,
+    0.125, 0.25, 0.125,
+    0.0625, 0.125, 0.0625
+};
+
+static const float aTrousFilter5x5[5][5] =
+{
+    1.0 / 256.0, 1.0 / 64.0, 3.0 / 128.0, 1.0 / 64.0, 1.0 / 256.0,
+    1.0 / 64.0, 1.0 / 16.0, 3.0 / 32.0, 1.0 / 16.0, 1.0 / 64.0,
+    3.0 / 128.0, 3.0 / 32.0, 9.0 / 64.0, 3.0 / 32.0, 3.0 / 128.0,
+    1.0 / 64.0, 1.0 / 16.0, 3.0 / 32.0, 1.0 / 16.0, 1.0 / 64.0,
+    1.0 / 256.0, 1.0 / 64.0, 3.0 / 128.0, 1.0 / 64.0, 1.0 / 256.0
+};
+
+static const float gaussianFilter[3][3] =
+{
+    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 },
+    { 1.0 / 8.0,  1.0 / 4.0, 1.0 / 8.0  },
+    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 }
+};
+
+static const float gaussianFilter5x5[5][5] =
+{
+    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 },
+    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
+    { 7.0 / 273.0, 26.0 / 273.0, 41.0 / 273.0, 26.0 / 273.0, 7.0 / 273.0 },
+    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
+    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 }
+};
+
+static const float offset[25][2] =
+{
+    { -2,  2 },
+    { -2,  1 },
+    { -2,  0 },
+    { -2, -1 },
+    { -2, -2 },
+    { -1,  2 },
+    { -1,  1 },
+    { -1,  0 },
+    { -1, -1 },
+    { -1, -2 },
+    {  0,  2 },
+    {  0,  1 },
+    {  0,  0 },
+    {  0, -1 },
+    {  0, -2 },
+    {  1,  2 },
+    {  1,  1 },
+    {  1,  0 },
+    {  1, -1 },
+    {  1, -2 },
+    {  2,  2 },
+    {  2,  1 },
+    {  2,  0 },
+    {  2, -1 },
+    {  2, -2 }
+};
+
+// Declare one thread for each texel of the current block size.
+[numthreads(size_x, size_y, 1)]
+void ATrous5x5(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 sum = float4(0, 0, 0, 0);
+    //float2 step = (1 / CameraX, 1 / CameraY);
+    float4 shadowValue = ShadowInput.Load(dispatchThreadId);
+    float4 normalValue = float4(GBufferNormals.Load(dispatchThreadId).xyz, 1.0f);
+    float4 positionValue = Position.Load(dispatchThreadId);
+
+    float cumW = 0.0f;
+    float weight = 0.0f;
+    float shadowW = 0.0f;
+    float normalW = 0.0f;
+    float positionW = 0.0f;
+    float4 t = 0.0f;
+    float distance2 = 0.0f;
+    for (int x = 0; x < 5; x++)
+    {
+        for (int y = 0; y < 5; y++)
+        {
+            int i = 5 * x + y;
+            int3 uv = dispatchThreadId + int3(offset[i][0], offset[i][1], 0) /** step*/ * StepWidth;
+
+            // shadow
+            /*float4 shadowTmp = ShadowInput.Load(uv);
+            t = shadowValue - shadowTmp;
+            distance2 = dot(t, t);
+            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);*/
+
+            // normal
+            float4 normalTmp = float4(GBufferNormals.Load(uv).xyz, 1.0f);
+            t = normalValue - normalTmp;
+            distance2 = max(dot(t, t) / (StepWidth * StepWidth), 0.0f);
+            normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
+
+            // Position
+            /*float4 positionTmp = Position.Load(uv);
+            t = positionValue - positionTmp;
+            distance2 = dot(t, t);
+            positionW = min(exp(-(distance2) / PositionPhi), 1.0f);
+
+            weight = shadowW * normalW * positionW;
+            float weightedKernel = weight * aTrousFilter5x5[x][y];
+            sum += shadowTmp * weightedKernel;
+            cumW += weightedKernel;*/
+        }
+    }
+
+    //FilteredOutput[dispatchThreadId.xy] = sum / cumW;
+    FilteredOutput[dispatchThreadId.xy] = float4(normalW, normalW, normalW, 1);
+}

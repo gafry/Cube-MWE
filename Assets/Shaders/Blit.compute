@@ -1,0 +1,21 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel BlitIt
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> ShadowInput;
+Texture2D<float4> ColorInput;
+RWTexture2D<float4> BlitOutput;
+
+// Declare one thread for each texel of the current block size.
+[numthreads(size_x, size_y, 1)]
+void BlitIt(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    int3 texturelocation = dispatchThreadId;
+
+    BlitOutput[dispatchThreadId.xy] = ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation);
+}

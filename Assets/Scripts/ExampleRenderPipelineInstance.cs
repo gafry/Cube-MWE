@@ -21,7 +21,8 @@ public class ExampleRenderPipelineInstance : RenderPipeline
         // Execute Render function for each camera
         foreach (Camera camera in cameras)
         {
-            renderer.Render(context, camera, _renderPipelineAsset.MotionVectorShader, _renderPipelineAsset.ReprojectionShader);
+            renderer.Render(context, camera, _renderPipelineAsset.MotionVectorShader, _renderPipelineAsset.ReprojectionShader, _renderPipelineAsset.BlitShader,
+                _renderPipelineAsset.FilterShader);
         }
 
         // Tell the Scriptable Render Context to tell the graphics API to perform the scheduled commands

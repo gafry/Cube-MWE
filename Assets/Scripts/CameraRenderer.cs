@@ -10,6 +10,8 @@ public class CameraRenderer : MonoBehaviour
 
     private int _motionVectorKernelId;
     private int _reprojectionKernelId;
+    private int _blitKernelId;
+    private int _filterKernelId;
 
     public Texture2D _noiseTexture;
 
@@ -51,11 +53,17 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _GBufferNormalsId = Shader.PropertyToID("GBufferNormals");
     private readonly int _GBufferAlbedoId = Shader.PropertyToID("GBufferAlbedo");
     private readonly int _PrevGBufferNormalsId = Shader.PropertyToID("PrevGBufferNormals");
+    private readonly int _ColorInputId = Shader.PropertyToID("ColorInput");
+    private readonly int _ShadowInputId = Shader.PropertyToID("ShadowInput");
+    private readonly int _BlitOutputId = Shader.PropertyToID("BlitOutput");
+    private readonly int _FilteredOutputId = Shader.PropertyToID("FilteredOutput");
+    private readonly int _StepWidthId = Shader.PropertyToID("StepWidth");
 
     // Light    
-    private readonly int _lightPositionId = Shader.PropertyToID("_LightPosition");
+    //private readonly int _lightPositionId = Shader.PropertyToID("_LightPosition");
 
-    public void Render(ScriptableRenderContext context, Camera camera, ComputeShader MotionVector, ComputeShader Reprojection)
+    public void Render(ScriptableRenderContext context, Camera camera, ComputeShader MotionVectorShader, ComputeShader ReprojectionShader,
+                       ComputeShader BlitShader, ComputeShader FilterShader)
     {
         // Load shaders data
         _shader = Resources.Load<RayTracingShader>("RayTrace");
@@ -78,7 +86,8 @@ public class CameraRenderer : MonoBehaviour
         var reprojectedBuffer = RequireBuffer(camera, "reprojectedBuffer");
         var prevGlobalLightBuffer = RequireBuffer(camera, "prevGlobalLightBuffer");
         var prevGBufferNormals = RequireBuffer(camera, "prevGBufferNormals");
-
+        var blitBuffer = RequireBuffer(camera, "blitBuffer");
+        var filterBuffer = RequireBuffer(camera, "filterBuffer");
 
         // Ray tracing command
         var cmd = CommandBufferPool.Get("RayTracingCommand");
@@ -95,7 +104,7 @@ public class CameraRenderer : MonoBehaviour
             // get GBuffer - normals and world positions
             // output - gBufferNormals & gBufferWorldPositions
             {
-                using (new ProfilingSample(cmd, "Normals, Albedo and World Positions"))
+                using (new ProfilingScope(cmd, new ProfilingSampler("Normals, Albedo and World Positions")))
                 {
                     cmd.SetRayTracingShaderPass(_shaderGBuffer, "GBuffer");
                     cmd.SetRayTracingAccelerationStructure(_shaderGBuffer, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
@@ -108,15 +117,15 @@ public class CameraRenderer : MonoBehaviour
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
 
-                using (new ProfilingSample(cmd, "Motion vector"))
+                using (new ProfilingScope(cmd, new ProfilingSampler("Motion Vector")))
                 {
-                    _motionVectorKernelId = MotionVector.FindKernel("MotionVector");
-                    cmd.SetComputeTextureParam(MotionVector, _motionVectorKernelId, _PositionsId, gBufferWorldPositions);
-                    cmd.SetComputeTextureParam(MotionVector, _motionVectorKernelId, _MotionVectorId, motionVectorBuffer);
-                    cmd.SetComputeMatrixParam(MotionVector, _PrevViewProjId, PrevViewProjMatrix);
-                    cmd.SetComputeFloatParam(MotionVector, _CameraXId, outputTargetSize.x);
-                    cmd.SetComputeFloatParam(MotionVector, _CameraYId, outputTargetSize.y);
-                    cmd.DispatchCompute(MotionVector, _motionVectorKernelId, gBufferWorldPositions.rt.width / 24, gBufferWorldPositions.rt.height / 24, 1);
+                    _motionVectorKernelId = MotionVectorShader.FindKernel("MotionVector");
+                    cmd.SetComputeTextureParam(MotionVectorShader, _motionVectorKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(MotionVectorShader, _motionVectorKernelId, _MotionVectorId, motionVectorBuffer);
+                    cmd.SetComputeMatrixParam(MotionVectorShader, _PrevViewProjId, PrevViewProjMatrix);
+                    cmd.SetComputeFloatParam(MotionVectorShader, _CameraXId, outputTargetSize.x);
+                    cmd.SetComputeFloatParam(MotionVectorShader, _CameraYId, outputTargetSize.y);
+                    cmd.DispatchCompute(MotionVectorShader, _motionVectorKernelId, gBufferWorldPositions.rt.width / 24, gBufferWorldPositions.rt.height / 24, 1);
                 }
 
                 context.ExecuteCommandBuffer(cmd);
@@ -127,7 +136,7 @@ public class CameraRenderer : MonoBehaviour
             // output - globalLightBuffer
             if (Settings.Instance.rayTracingOn || Settings.Instance.reprojectionOn)
             {
-                using (new ProfilingSample(cmd, "Global Light"))
+                using (new ProfilingScope(cmd, new ProfilingSampler("Global lighting")))
                 {
                     cmd.SetRayTracingShaderPass(_shader, "RayTracing");
                     cmd.SetRayTracingAccelerationStructure(_shader, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
@@ -143,36 +152,128 @@ public class CameraRenderer : MonoBehaviour
                 cmd.Clear();
             }
 
-            // reprojection test
-            if (Settings.Instance.reprojectionOn)
-            {
-                using (new ProfilingSample(cmd, "Reprojection"))
+            // reprojection
+            //if (Settings.Instance.reprojectionOn)
+            //{
+                using (new ProfilingScope(cmd, new ProfilingSampler("Reprojection")))
                 {
-                    _reprojectionKernelId = Reprojection.FindKernel("Reprojection");
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _LastFrameId, prevGlobalLightBuffer);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _MotionVectorId, motionVectorBuffer);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _CurrentFrameId, globalLightBuffer);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _ReprojectedOutputId, reprojectedBuffer);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _GBufferNormalsId, gBufferNormals);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _GBufferAlbedoId, albedoBuffer);
-                    cmd.SetComputeTextureParam(Reprojection, _reprojectionKernelId, _PrevGBufferNormalsId, prevGBufferNormals);
-                    cmd.DispatchCompute(Reprojection, _reprojectionKernelId, reprojectedBuffer.rt.width / 24, reprojectedBuffer.rt.height / 24, 1);
+                    _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevGlobalLightBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _MotionVectorId, motionVectorBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, globalLightBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _ReprojectedOutputId, reprojectedBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _GBufferAlbedoId, albedoBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevGBufferNormalsId, prevGBufferNormals);
+                    cmd.DispatchCompute(ReprojectionShader, _reprojectionKernelId, reprojectedBuffer.rt.width / 24, reprojectedBuffer.rt.height / 24, 1);
+                    cmd.Blit(reprojectedBuffer, prevGlobalLightBuffer);
+                    cmd.Blit(gBufferNormals, prevGBufferNormals);
                 }
+            //}
+
+            // A Trous filtering
+            //if (Settings.Instance.filtering)
+            //{
+                using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
+                {
+                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 10);
+                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                }
+
+                /*using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
+                {
+                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, filterBuffer);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, reprojectedBuffer);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 2);
+                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                }
+
+                using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
+                {
+                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 3);
+                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                }
+
+            using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
+            {
+                _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, filterBuffer);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, reprojectedBuffer);
+                cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 4);
+                cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+            }
+
+            using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
+            {
+                _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
+                cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 5);
+                cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+            }*/
+            //}
+
+            // combine albedo and AO
+            // output - outputTarget
+            if (Settings.Instance.combineAlbedoAndShadows)
+            {
+                using (new ProfilingScope(cmd, new ProfilingSampler("Combine shadows and albedo")))
+                {
+                    _blitKernelId = BlitShader.FindKernel("BlitIt");
+                    cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ShadowInputId, reprojectedBuffer);
+                    cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ColorInputId, albedoBuffer);
+                    cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _BlitOutputId, blitBuffer);
+                    cmd.DispatchCompute(BlitShader, _blitKernelId, blitBuffer.rt.width / 24, blitBuffer.rt.height / 24, 1);
+                }
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
             }
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
 
             // Final blit - based on settings
-            using (new ProfilingSample(cmd, "FinalBlit"))
+            /*using (new ProfilingScope(cmd, new ProfilingSampler("Final Blit")))
             {
-                if (Settings.Instance.reprojectionOn)
+                if (Settings.Instance.combineAlbedoAndShadows)
+                    cmd.Blit(blitBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
+                else if (Settings.Instance.reprojectionOn)
                     cmd.Blit(reprojectedBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
                 else if (Settings.Instance.rayTracingOn)
                     cmd.Blit(globalLightBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
                 else
-                    cmd.Blit(motionVectorBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
-            }
+                    cmd.Blit(albedoBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
+            }*/
+
+            cmd.Blit(filterBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();

@@ -26,6 +26,7 @@ public class PipelineManager : MonoBehaviour
 
         _defaultRenderPipelineAsset = GraphicsSettings.renderPipelineAsset;
         GraphicsSettings.renderPipelineAsset = renderPipelineAsset;
+        //Application.targetFrameRate = 60;
     }
 
     /// <summary>

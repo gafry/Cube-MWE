@@ -5,6 +5,9 @@
         _Color("Main Color", Color) = (1, 1, 1, 1)
         _Kd("Kd", Float) = 0.5
         _BaseColorMap("BaseColorMap", 2D) = "white" {}
+        _BaseColorMap_2("BaseColorMap", 2D) = "white" {}
+        _BaseColorMap_8("BaseColorMap", 2D) = "white" {}
+        _BaseColorMap_32("BaseColorMap", 2D) = "white" {}
     }
 
     SubShader
@@ -166,7 +169,10 @@
             float4 _Color;
             CBUFFER_END
 
-            Texture2D _BaseColorMap;
+            Texture2D _BaseColorMap;            
+            Texture2D _BaseColorMap_2;
+            Texture2D _BaseColorMap_8;
+            Texture2D _BaseColorMap_32;
             SamplerState sampler_BaseColorMap;
 
             [shader("closesthit")]
@@ -194,13 +200,21 @@
                 float t = RayTCurrent();
                 float3 positionWS = origin + direction * t;
 
-                float instanceID = InstanceID() / 4.0f;
+                float instanceID = InstanceID();
                 rayPayload.normalAndId = float4(normalWS, instanceID);
                 rayPayload.worldPosition = float4(positionWS, 1.0f);
                 //rayPayload.albedo = _Color.xyz;
 
                 float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
-                float4 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                float4 textureColor;
+                if (t < 5)
+                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                else if (t < 10)
+                    textureColor = _BaseColorMap_2.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                else if (t < 40)
+                    textureColor = _BaseColorMap_8.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                else
+                    textureColor = _BaseColorMap_32.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
                 rayPayload.albedo = textureColor.xyz;
             }
 
