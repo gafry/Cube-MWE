@@ -58,6 +58,7 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _BlitOutputId = Shader.PropertyToID("BlitOutput");
     private readonly int _FilteredOutputId = Shader.PropertyToID("FilteredOutput");
     private readonly int _StepWidthId = Shader.PropertyToID("StepWidth");
+    private readonly int _IterationId = Shader.PropertyToID("Iteration");
 
     // Light    
     //private readonly int _lightPositionId = Shader.PropertyToID("_LightPosition");
@@ -176,15 +177,21 @@ public class CameraRenderer : MonoBehaviour
             //{
                 using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
                 {
-                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 10);
-                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                    int iterations = 5;
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                        cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
+                        cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
+                        cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
+                        cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
+                        cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
+                        cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
+                        cmd.SetComputeFloatParam(FilterShader, _StepWidthId, iterations - i);
+                        cmd.SetComputeFloatParam(FilterShader, _IterationId, i);
+                        cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                        cmd.Blit(filterBuffer, reprojectedBuffer);
+                    }
                 }
 
                 /*using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
