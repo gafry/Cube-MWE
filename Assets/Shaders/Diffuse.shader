@@ -74,7 +74,7 @@
 
             cbuffer PointLight
             {
-                float3 _LightPosition;
+                float3 LightPosition;
             };
 
             [shader("closesthit")]
@@ -130,19 +130,28 @@
 
                 float4 finalColor = (0, 0, 0, 0);
 
-                float3 gLightPosition3 = float3(530.0f, 500.0f, 370.0f);
-                float3 dirToLight3 = normalize(gLightPosition3 - positionWS);
-                //float3 sampleOnHemisphere = gLightPosition3;
-                float3 sampleOnHemisphere = gLightPosition3 + 100 * SampleHemisphereCosine(rayPayload.randomSeed, dirToLight3);
-                dirToLight3 = normalize(sampleOnHemisphere - positionWS);
-                float distToLight3 = length(sampleOnHemisphere - positionWS) - 0.2f;
-                float NdotL3 = saturate(dot(normalWS, dirToLight3));
-                float lightIntensity3 = 20.5f;
-                float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+                float sunSize = 100.0f;
+                float isLit = 0.0f;
 
-                // Shoot shadow ray with our encapsulated shadow tracing function
-                float isLit = shootShadowRay(positionWS, dirToLight3, 1.0e-4f, distToLight3);
-                isLit = max(isLit, color.x);
+                if (LightPosition.y + sunSize > 0)
+                {
+                    float3 dirToLight3 = normalize(LightPosition - positionWS);
+                    float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(rayPayload.randomSeed, dirToLight3);
+                    dirToLight3 = normalize(sampleOnHemisphere - positionWS);
+                    float distToLight3 = length(sampleOnHemisphere - positionWS) - 0.2f;
+                    float NdotL3 = saturate(dot(normalWS, dirToLight3));
+                    float lightIntensity3 = 20.5f;
+                    float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+                    // Shoot shadow ray with our encapsulated shadow tracing function
+                    isLit = shootShadowRay(positionWS, dirToLight3, 1.0e-4f, distToLight3);
+                }
+                else
+                {
+                    isLit = 0;
+                }
+                //isLit = max(isLit, color.x);
+                isLit = max(isLit, color.x / 3);
 
                 rayPayload.color = float4(isLit, isLit, isLit, 1);
             }

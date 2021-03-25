@@ -4,6 +4,7 @@ using UnityEngine.Experimental.Rendering;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
+using PathCreation;
 
 public enum Phase : ushort
 {
@@ -17,6 +18,10 @@ public class SceneManager : MonoBehaviour
 	public Material material;
 
 	public GameObject player;
+
+	public GameObject sun;
+
+	//public PathCreator pathCreator;
 
 	public static Dictionary<string, Chunk> chunks;
 
@@ -99,103 +104,106 @@ public class SceneManager : MonoBehaviour
 		// his mesh is created on another thread.
 		// Then, in meantime, loop the dictionary, if any chunk is too far away, remove
 		// it from the dictionary. Then finish processed chunks.
-		if ((!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) || !_jobsDone) && phase == Phase.StartingJobs)
+		if (Settings.Instance.loadWorld)
 		{
-			//List<Chunk> toFinish = new List<Chunk>();
-			List<string> toRemove = new List<string>();
-			_jobHandles = new NativeList<JobHandle>(Allocator.Temp);
-
-			Vector3Int chunkPosition = chunkWherePlayerStandsV3;
-			int radiusInChunks = (_chunkSize * _radius);
-
-			for (int x = chunkPosition.x - radiusInChunks; x < chunkPosition.x + radiusInChunks + 1; x += _chunkSize)
+			if ((!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) || !_jobsDone) && phase == Phase.StartingJobs)
 			{
-				for (int z = chunkPosition.z - radiusInChunks; z < chunkPosition.z + radiusInChunks + 1; z += _chunkSize)
+				//List<Chunk> toFinish = new List<Chunk>();
+				List<string> toRemove = new List<string>();
+				_jobHandles = new NativeList<JobHandle>(Allocator.Temp);
+
+				Vector3Int chunkPosition = chunkWherePlayerStandsV3;
+				int radiusInChunks = (_chunkSize * _radius);
+
+				for (int x = chunkPosition.x - radiusInChunks; x < chunkPosition.x + radiusInChunks + 1; x += _chunkSize)
 				{
-					Vector2 heading;
-					heading.x = chunkPosition.x + _chunkSizeHalf - x;
-					heading.y = chunkPosition.z + _chunkSizeHalf - z;
-					float distanceSquared = heading.x * heading.x + heading.y * heading.y;
-					float distance = Mathf.Sqrt(distanceSquared);
-					if (distance <= radiusInChunks)
+					for (int z = chunkPosition.z - radiusInChunks; z < chunkPosition.z + radiusInChunks + 1; z += _chunkSize)
 					{
-						string chunkName = BuildChunkName(new Vector3(x, 0, z));
-						if (!chunks.ContainsKey(chunkName))
+						Vector2 heading;
+						heading.x = chunkPosition.x + _chunkSizeHalf - x;
+						heading.y = chunkPosition.z + _chunkSizeHalf - z;
+						float distanceSquared = heading.x * heading.x + heading.y * heading.y;
+						float distance = Mathf.Sqrt(distanceSquared);
+						if (distance <= radiusInChunks)
 						{
-							Chunk chunk = new Chunk(new Vector3(x, 0, z), material, chunkName);
-							chunk.chunk.transform.parent = this.transform;
+							string chunkName = BuildChunkName(new Vector3(x, 0, z));
+							if (!chunks.ContainsKey(chunkName))
+							{
+								Chunk chunk = new Chunk(new Vector3(x, 0, z), material, chunkName);
+								chunk.chunk.transform.parent = this.transform;
 
-							chunks.Add(chunkName, chunk);
-							_toFinish.Add(chunk);
+								chunks.Add(chunkName, chunk);
+								_toFinish.Add(chunk);
 
-							JobHandle jobHandle = chunk.StartCreatingChunk();
-							_jobHandles.Add(jobHandle);
+								JobHandle jobHandle = chunk.StartCreatingChunk();
+								_jobHandles.Add(jobHandle);
 
-							jobsCounter++;
+								jobsCounter++;
+							}
 						}
+
+						if (jobsCounter == _maxJobsAtOnce)
+							break;
 					}
 
 					if (jobsCounter == _maxJobsAtOnce)
 						break;
 				}
 
-				if (jobsCounter == _maxJobsAtOnce)
-					break;
-			}
-
-			foreach (KeyValuePair<string, Chunk> pair in chunks)
-			{
-				Vector3 chunkPos = pair.Value.chunk.transform.position;
-				Vector2 heading;
-				heading.x = chunkPosition.x + _chunkSizeHalf - chunkPos.x;
-				heading.y = chunkPosition.z + _chunkSizeHalf - chunkPos.z;
-				float distanceSquared = heading.x * heading.x + heading.y * heading.y;
-				float distance = Mathf.Sqrt(distanceSquared);
-				if (distance > radiusInChunks + 2)
+				foreach (KeyValuePair<string, Chunk> pair in chunks)
 				{
-					Destroy(pair.Value.chunk);
-					toRemove.Add(pair.Key);
+					Vector3 chunkPos = pair.Value.chunk.transform.position;
+					Vector2 heading;
+					heading.x = chunkPosition.x + _chunkSizeHalf - chunkPos.x;
+					heading.y = chunkPosition.z + _chunkSizeHalf - chunkPos.z;
+					float distanceSquared = heading.x * heading.x + heading.y * heading.y;
+					float distance = Mathf.Sqrt(distanceSquared);
+					if (distance > radiusInChunks + 2)
+					{
+						Destroy(pair.Value.chunk);
+						toRemove.Add(pair.Key);
+					}
 				}
-			}
 
-			foreach (string key in toRemove)
+				foreach (string key in toRemove)
+				{
+					chunks.Remove(key);
+				}
+
+				foreach (Chunk chunk in _toFinish)
+				{
+					chunk.PrepareMesh();
+				}
+
+				toRemove.Clear();
+
+				_chunkWherePlayerStood = chunkWherePlayerStands;
+
+				if (jobsCounter == _maxJobsAtOnce)
+					_jobsDone = false;
+				else
+					_jobsDone = true;
+
+				phase = Phase.FinishingJobs;
+
+				JobHandle.CompleteAll(_jobHandles);
+
+				_jobHandles.Dispose();
+			}
+			else if (phase == Phase.FinishingJobs)
 			{
-				chunks.Remove(key);
+				foreach (Chunk chunk in _toFinish)
+				{
+					chunk.FinishCreatingChunk();
+				}
+
+				_toFinish.Clear();
+
+				phase = Phase.Resting;
 			}
-
-			foreach (Chunk chunk in _toFinish)
-			{
-				chunk.PrepareMesh();
-			}
-
-			toRemove.Clear();
-
-			_chunkWherePlayerStood = chunkWherePlayerStands;
-
-			if (jobsCounter == _maxJobsAtOnce)
-				_jobsDone = false;
 			else
-				_jobsDone = true;
-
-			phase = Phase.FinishingJobs;
-
-			JobHandle.CompleteAll(_jobHandles);
-
-			_jobHandles.Dispose();
+				phase = Phase.StartingJobs;
 		}
-		else if (phase == Phase.FinishingJobs)
-		{
-			foreach (Chunk chunk in _toFinish)
-			{
-				chunk.FinishCreatingChunk();
-			}
-
-			_toFinish.Clear();
-
-			phase = Phase.Resting;
-		}
-		else
-			phase = Phase.StartingJobs;
 
 		if (_accelerationStructure != null)
 			_accelerationStructure.Build();
@@ -219,6 +227,16 @@ public class SceneManager : MonoBehaviour
 		// Builds chunk name based on position 
 		return (int)position.x + "_" + (int)position.y + "_" + (int)position.z;
 	}
+
+	public Vector3 GetSunPosition()
+    {
+		return sun.transform.position;
+    }
+
+	/*public void GetSunProgress()
+    {
+		return (distanceTravelled % pathCreator.path.length) / pathCreator.path.length;
+	}*/
 
 	private void OnDestroy()
 	{
@@ -250,8 +268,15 @@ public class SceneManager : MonoBehaviour
 		Renderer[] renderers = FindObjectsOfType<Renderer>();
 		foreach (Renderer r in renderers)
 		{
-			if (r.CompareTag("Light")) _accelerationStructure.AddInstance(r, null, null, true, false, 16);
-			else _accelerationStructure.AddInstance(r, null, null, true, false, 8);
+			if (r.CompareTag("Light"))
+			{
+				Debug.Log("Svetlo");
+				_accelerationStructure.AddInstance(r, null, null, true, false, 16);
+			}
+			else
+			{
+				_accelerationStructure.AddInstance(r, null, null, true, false, 8);
+			}
 		}
 		
 		// build raytrasing scene

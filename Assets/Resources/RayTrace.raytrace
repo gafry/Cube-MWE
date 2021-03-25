@@ -7,11 +7,25 @@ float4 _OutputTargetSize;
 int _FrameIndex;
 int _FrameCounter;
 int _DepthOfRecursion;
+float3 LightPosition;
 
 inline float3 BackgroundColor(float3 origin, float3 direction)
 {
-	float t = 0.5f * (direction.y + 1.0f);
-	return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
+	float3 normLightVector = normalize(float3(0, 0, 0) - LightPosition);
+	float distToLight = distance(origin, LightPosition);
+	float3 normMissVector = normalize(float3(0, 0, 0) - (distToLight * direction));
+	float dist = distance(normLightVector, normMissVector);
+	float t = (dist - 0.03f) / (2 - 0.03f);
+	
+	if (t < 0.03)
+		return float3(1.0f, 1.0f, 1.0f);
+	else
+	{
+		return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.0f, 0.0f, 0.0f);
+	}
+
+	//float t = 0.5f * (direction.y + 1.0f);
+	//return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
 }
 
 [shader("raygeneration")]

@@ -17,5 +17,6 @@ void BlitIt(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     int3 texturelocation = dispatchThreadId;
 
+    //BlitOutput[dispatchThreadId.xy] = pow(ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation), 2.2f);
     BlitOutput[dispatchThreadId.xy] = ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation);
 }

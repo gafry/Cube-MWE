@@ -7,6 +7,7 @@ public class CameraRenderer : MonoBehaviour
 {
     private RayTracingShader _shader;
     private RayTracingShader _shaderGBuffer;
+    private RayTracingShader _shaderAO;
 
     private int _motionVectorKernelId;
     private int _reprojectionKernelId;
@@ -53,12 +54,14 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _GBufferNormalsId = Shader.PropertyToID("GBufferNormals");
     private readonly int _GBufferAlbedoId = Shader.PropertyToID("GBufferAlbedo");
     private readonly int _PrevGBufferNormalsId = Shader.PropertyToID("PrevGBufferNormals");
+    private readonly int _PrevGBufferPositionId = Shader.PropertyToID("PrevGBufferPosition");
     private readonly int _ColorInputId = Shader.PropertyToID("ColorInput");
     private readonly int _ShadowInputId = Shader.PropertyToID("ShadowInput");
     private readonly int _BlitOutputId = Shader.PropertyToID("BlitOutput");
     private readonly int _FilteredOutputId = Shader.PropertyToID("FilteredOutput");
     private readonly int _StepWidthId = Shader.PropertyToID("StepWidth");
     private readonly int _IterationId = Shader.PropertyToID("Iteration");
+    private readonly int _LightPositionId = Shader.PropertyToID("LightPosition");
 
     // Light    
     //private readonly int _lightPositionId = Shader.PropertyToID("_LightPosition");
@@ -69,6 +72,7 @@ public class CameraRenderer : MonoBehaviour
         // Load shaders data
         _shader = Resources.Load<RayTracingShader>("RayTrace");
         _shaderGBuffer = Resources.Load<RayTracingShader>("GBuffer");
+        _shaderAO = Resources.Load<RayTracingShader>("AO");
 
         // Set camera variables
         SetupCamera(camera);
@@ -87,8 +91,10 @@ public class CameraRenderer : MonoBehaviour
         var reprojectedBuffer = RequireBuffer(camera, "reprojectedBuffer");
         var prevGlobalLightBuffer = RequireBuffer(camera, "prevGlobalLightBuffer");
         var prevGBufferNormals = RequireBuffer(camera, "prevGBufferNormals");
+        var prevGBufferPosition = RequireBuffer(camera, "prevGBufferPosition");
         var blitBuffer = RequireBuffer(camera, "blitBuffer");
         var filterBuffer = RequireBuffer(camera, "filterBuffer");
+        var aoBuffer = RequireBuffer(camera, "aoBuffer");
 
         // Ray tracing command
         var cmd = CommandBufferPool.Get("RayTracingCommand");
@@ -146,6 +152,14 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetRayTracingIntParam(_shader, _frameIndexShaderId, _frameIndex);
                     cmd.SetRayTracingIntParam(_shader, _frameCounterShaderId, _frameCounter);
                     cmd.SetRayTracingIntParam(_shader, _depthOfRecursionShaderId, Settings.Instance.depthOfRecursion);
+                    if (Settings.Instance.dayNightEfect)
+                        cmd.SetRayTracingVectorParam(_shader, _LightPositionId, SceneManager.Instance.GetSunPosition());
+                    else
+                        cmd.SetRayTracingVectorParam(_shader, _LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));
+                    if (Settings.Instance.dayNightEfect)
+                        cmd.SetGlobalVector(_LightPositionId, SceneManager.Instance.GetSunPosition());
+                    else
+                        cmd.SetGlobalVector(_LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));
                     cmd.DispatchRays(_shader, "MyRaygenShader", (uint)globalLightBuffer.rt.width, (uint)globalLightBuffer.rt.height, 1, camera);
                 }
 
@@ -153,99 +167,91 @@ public class CameraRenderer : MonoBehaviour
                 cmd.Clear();
             }
 
+            // ambient oclussion pass
+            if (Settings.Instance.AO)
+            {
+                using (new ProfilingSample(cmd, "AmbientOcclusion"))
+                {
+                    cmd.SetRayTracingShaderPass(_shaderAO, "AO");
+                    cmd.SetRayTracingAccelerationStructure(_shaderAO, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
+                    cmd.SetRayTracingTextureParam(_shaderAO, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetRayTracingTextureParam(_shaderAO, _PositionsId, gBufferWorldPositions);
+                    cmd.SetRayTracingTextureParam(_shaderAO, _outputTargetShaderId, aoBuffer);
+                    cmd.SetRayTracingIntParam(_shaderAO, _frameIndexShaderId, _frameIndex);
+                    cmd.SetRayTracingIntParam(_shaderAO, _frameCounterShaderId, _frameCounter);
+                    cmd.SetRayTracingVectorParam(_shaderAO, _outputTargetSizeShaderId, outputTargetSize);
+                    cmd.DispatchRays(_shaderAO, "AORaygenShader", (uint)aoBuffer.rt.width, (uint)aoBuffer.rt.height, 1, camera);
+                }
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+            }
+
             // reprojection
-            //if (Settings.Instance.reprojectionOn)
-            //{
+            if (Settings.Instance.reprojectionOn)
+            {
                 using (new ProfilingScope(cmd, new ProfilingSampler("Reprojection")))
                 {
                     _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevGlobalLightBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _MotionVectorId, motionVectorBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, globalLightBuffer);
+                    //cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, aoBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _ReprojectedOutputId, reprojectedBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _GBufferNormalsId, gBufferNormals);
-                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _GBufferAlbedoId, albedoBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevGBufferPositionId, prevGBufferPosition);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevGBufferNormalsId, prevGBufferNormals);
                     cmd.DispatchCompute(ReprojectionShader, _reprojectionKernelId, reprojectedBuffer.rt.width / 24, reprojectedBuffer.rt.height / 24, 1);
                     cmd.Blit(reprojectedBuffer, prevGlobalLightBuffer);
                     cmd.Blit(gBufferNormals, prevGBufferNormals);
+                    // TODO toto tu nemusi mozna byt + kod co k tomu patri v shaderu
+                    cmd.Blit(gBufferWorldPositions, prevGBufferPosition);
                 }
-            //}
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+            }
+            else
+            {
+                cmd.Blit(globalLightBuffer, reprojectedBuffer);
+            }
 
             // A Trous filtering
-            //if (Settings.Instance.filtering)
-            //{
+            if (Settings.Instance.filtering)
+            {
                 using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
                 {
-                    int iterations = 5;
+                    int iterations = 7;
                     for (int i = 0; i < iterations; i++)
                     {
-                        _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                        if (i < 3)
+                        {
+                            _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                        }
+                        else
+                        {
+                            _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                        }
+                        //_filterKernelId = FilterShader.FindKernel("ATrous5x5");
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
                         cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
                         cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                        cmd.SetComputeFloatParam(FilterShader, _StepWidthId, iterations - i);
+                        cmd.SetComputeFloatParam(FilterShader, _StepWidthId, /*iterations - i*/Mathf.Max(i, 1));
                         cmd.SetComputeFloatParam(FilterShader, _IterationId, i);
                         cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
                         cmd.Blit(filterBuffer, reprojectedBuffer);
                     }
+
+                    cmd.Blit(reprojectedBuffer, prevGlobalLightBuffer);
                 }
 
-                /*using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
-                {
-                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, filterBuffer);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, reprojectedBuffer);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 2);
-                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
-                }
-
-                using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
-                {
-                    _filterKernelId = FilterShader.FindKernel("ATrous5x5");
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
-                    cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
-                    cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                    cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 3);
-                    cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
-                }
-
-            using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
-            {
-                _filterKernelId = FilterShader.FindKernel("ATrous5x5");
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, filterBuffer);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, reprojectedBuffer);
-                cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
-                cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 4);
-                cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
             }
-
-            using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
-            {
-                _filterKernelId = FilterShader.FindKernel("ATrous5x5");
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
-                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
-                cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
-                cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
-                cmd.SetComputeFloatParam(FilterShader, _StepWidthId, 5);
-                cmd.DispatchCompute(FilterShader, _filterKernelId, filterBuffer.rt.width / 24, filterBuffer.rt.height / 24, 1);
-            }*/
-            //}
 
             // combine albedo and AO
             // output - outputTarget
@@ -258,14 +264,12 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ColorInputId, albedoBuffer);
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _BlitOutputId, blitBuffer);
                     cmd.DispatchCompute(BlitShader, _blitKernelId, blitBuffer.rt.width / 24, blitBuffer.rt.height / 24, 1);
+                    cmd.Blit(blitBuffer, reprojectedBuffer);
                 }
 
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
-
-            context.ExecuteCommandBuffer(cmd);
-            cmd.Clear();
 
             // Final blit - based on settings
             /*using (new ProfilingScope(cmd, new ProfilingSampler("Final Blit")))
@@ -280,7 +284,7 @@ public class CameraRenderer : MonoBehaviour
                     cmd.Blit(albedoBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
             }*/
 
-            cmd.Blit(filterBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
+            cmd.Blit(reprojectedBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
