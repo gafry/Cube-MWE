@@ -285,6 +285,7 @@ public class CameraRenderer : MonoBehaviour
             }*/
 
             cmd.Blit(reprojectedBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
+            //cmd.Blit(albedoBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();

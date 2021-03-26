@@ -11,7 +11,8 @@ float shootShadowRay(float3 orig, float3 dir, float minT, float maxT)
     RayDesc shadowRay = { orig, minT, dir, maxT };
     RayPayloadShadow shadowRayPayload = { 0.0f };
 
-    TraceRay(_AccelerationStructure, flags, 0xFF, 0, 1, 1, shadowRay, shadowRayPayload);
+    //                                ignore lights     miss shader - 1
+    TraceRay(_AccelerationStructure, flags, 0x01, 0, 1, 1, shadowRay, shadowRayPayload);
     return shadowRayPayload.visibility;
 }
 

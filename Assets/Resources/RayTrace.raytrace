@@ -11,8 +11,9 @@ float3 LightPosition;
 
 inline float3 BackgroundColor(float3 origin, float3 direction)
 {
-	float3 normLightVector = normalize(float3(0, 0, 0) - LightPosition);
-	float distToLight = distance(origin, LightPosition);
+	float3 lightPos = LightPosition + float3(0, -50, -50);
+	float3 normLightVector = normalize(float3(0, 0, 0) - lightPos);
+	float distToLight = distance(origin, lightPos);
 	float3 normMissVector = normalize(float3(0, 0, 0) - (distToLight * direction));
 	float dist = distance(normLightVector, normMissVector);
 	float t = (dist - 0.03f) / (2 - 0.03f);
@@ -56,7 +57,7 @@ void MyRaygenShader()
 	rayPayload.remainingDepth = _DepthOfRecursion - 1;
 	rayPayload.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-	TraceRay(_AccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, rayDescriptor, rayPayload);
+	TraceRay(_AccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0x01, 0, 1, 0, rayDescriptor, rayPayload);
 
 	color = rayPayload.color;
 	color = float4(sqrt(color.r), sqrt(color.g), sqrt(color.b), color.a);

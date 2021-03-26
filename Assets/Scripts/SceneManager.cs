@@ -35,6 +35,7 @@ public class SceneManager : MonoBehaviour
 	private int _maxJobsAtOnce;
 	private Phase phase = Phase.StartingJobs;
 	private List<Chunk> _toFinish = new List<Chunk>();
+	private bool runningJobs = false;
 
 	private RayTracingAccelerationStructure _accelerationStructure;
 
@@ -49,7 +50,6 @@ public class SceneManager : MonoBehaviour
 			if (s_Instance != null) return s_Instance;
 			
 			s_Instance = GameObject.FindObjectOfType<SceneManager>();
-			s_Instance?.InitRaytracingAccelerationStructure();
 			return s_Instance;
 		}
 	}
@@ -89,10 +89,13 @@ public class SceneManager : MonoBehaviour
 		}
 
 		_jobHandles.Dispose();
+
+		InitRaytracingAccelerationStructure();
 	}
 
 	// Update is called once per frame
-	void Update()
+	//void Update()
+	public void StartUpdate()
 	{
 		Vector3Int chunkWherePlayerStandsV3 = ChunkWherePlayerStands();
 		string chunkWherePlayerStands = BuildChunkName(chunkWherePlayerStandsV3);
@@ -160,6 +163,7 @@ public class SceneManager : MonoBehaviour
 					float distance = Mathf.Sqrt(distanceSquared);
 					if (distance > radiusInChunks + 2)
 					{
+						_accelerationStructure.RemoveInstance(pair.Value.chunk.GetComponent<Renderer>());						
 						Destroy(pair.Value.chunk);
 						toRemove.Add(pair.Key);
 					}
@@ -184,17 +188,19 @@ public class SceneManager : MonoBehaviour
 				else
 					_jobsDone = true;
 
-				phase = Phase.FinishingJobs;
+				runningJobs = true;
+				/*phase = Phase.FinishingJobs;
 
 				JobHandle.CompleteAll(_jobHandles);
 
-				_jobHandles.Dispose();
+				_jobHandles.Dispose();*/
 			}
 			else if (phase == Phase.FinishingJobs)
 			{
 				foreach (Chunk chunk in _toFinish)
 				{
 					chunk.FinishCreatingChunk();
+					_accelerationStructure.AddInstance(chunk.chunk.GetComponent<Renderer>(), null, null, true, false, 0x01);
 				}
 
 				_toFinish.Clear();
@@ -202,11 +208,35 @@ public class SceneManager : MonoBehaviour
 				phase = Phase.Resting;
 			}
 			else
+			{
 				phase = Phase.StartingJobs;
+			}
 		}
 
 		if (_accelerationStructure != null)
+        {
+			//_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
+			//_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
+			_accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
 			_accelerationStructure.Build();
+		}
+	}
+
+	public void FinishUpdate()
+	{
+		if (Settings.Instance.loadWorld)
+		{
+			if (runningJobs && phase == Phase.StartingJobs)
+			{
+				phase = Phase.FinishingJobs;
+
+				JobHandle.CompleteAll(_jobHandles);
+
+				_jobHandles.Dispose();
+
+				runningJobs = false;
+			}
+		}
 	}
 
 	private Vector3Int ChunkWherePlayerStands()
@@ -258,7 +288,7 @@ public class SceneManager : MonoBehaviour
 		// include default layer, not lights
 		settings.layerMask = -1;
 		// enable automatic updates
-		settings.managementMode = RayTracingAccelerationStructure.ManagementMode.Automatic;
+		settings.managementMode = RayTracingAccelerationStructure.ManagementMode.Manual;
 		// include all renderer types
 		settings.rayTracingModeMask = RayTracingAccelerationStructure.RayTracingModeMask.Everything;
 
@@ -270,22 +300,22 @@ public class SceneManager : MonoBehaviour
 		{
 			if (r.CompareTag("Light"))
 			{
-				Debug.Log("Svetlo");
-				_accelerationStructure.AddInstance(r, null, null, true, false, 16);
+				// mask for lights is 0x10 (for shadow rays - dont want to check intersection)
+				_accelerationStructure.AddInstance(r, null, null, true, false, 0x10);
 			}
 			else
 			{
-				_accelerationStructure.AddInstance(r, null, null, true, false, 8);
+				_accelerationStructure.AddInstance(r, null, null, true, false, 0x01);
 			}
 		}
 		
-		// build raytrasing scene
+		// build raytracing AS
 		_accelerationStructure.Build();
 	}
 
 	public void AddInstanceToAS(Renderer renderer)
     {
-		_accelerationStructure.AddInstance(renderer, null, null, true, false, 8);
+		_accelerationStructure.AddInstance(renderer, null, null, true, false, 0x01);
 		_accelerationStructure.Build();
 	}
 }

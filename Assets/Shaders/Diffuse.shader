@@ -151,7 +151,7 @@
                     isLit = 0;
                 }
                 //isLit = max(isLit, color.x);
-                isLit = max(isLit, color.x / 3);
+                isLit = max(isLit, color.x / 4);
 
                 rayPayload.color = float4(isLit, isLit, isLit, 1);
             }

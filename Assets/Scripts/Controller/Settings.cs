@@ -6,16 +6,22 @@ public class Settings : MonoBehaviour
 {
     private static Settings s_Instance;
 
-    public bool groundTruthIfThereIsNoMotion = true;
+    [Header("World options")]
     public bool dayNightEfect = false;
     public bool loadWorld = false;
+
+    [Header("Ray tracing options")]
+    public bool groundTruthIfThereIsNoMotion = false;
     public bool rayTracingOn = true;
     public bool AO = false;
     public bool reprojectionOn = false;
     public bool filtering = false;
     public bool combineAlbedoAndShadows = false;
+    [Range(2, 5)]
     public int depthOfRecursion = 2;
+    [Space(20)]
 
+    [Header("Runtime variables")]
     public bool cameraMoved = false;
     public bool mouseMoved = false;
 
