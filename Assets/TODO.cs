@@ -13,4 +13,6 @@ public class TODO : MonoBehaviour
     /* Pokud to nacitani chunku nebude stacit a bude dlouho trvat, jde jeste udelat, aby se prekryvalo
        FinishcreatingChunk() s generovanim bloku, protoze dokoncovani chunku jede jen na hlavnim vlakne,
        ale bloky se generuji jen na workerech*/
+       
+    // GraphicsSettings.useScriptableRenderPipelineBatching = true;
 }
