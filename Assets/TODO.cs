@@ -17,4 +17,10 @@ public class TODO : MonoBehaviour
     // GraphicsSettings.useScriptableRenderPipelineBatching = true;
     
     // rayIntersection.color = _Color * 0.5f * color;
+    
+    // # DXR Extra - Simple Lighting
+    /*float factor = isShadowed ? 0.3 : 1.0;
+    float nDotL = max(0.f, dot(normal, lightDir));
+    float3 hitColor = float3(0.7, 0.7, 0.7)*nDotL*factor;
+    payload.colorAndDistance = float4(hitColor, 1);*/
 }
