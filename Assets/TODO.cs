@@ -25,4 +25,6 @@ public class TODO : MonoBehaviour
     payload.colorAndDistance = float4(hitColor, 1);*/
     
     // dodělat ten history buffer a podle něho volit velikost kernelu u filtru
+    
+    // zkusit u reprojekce AO(i) = lerp(AO(new), AO(i-1), a), a = 0.003
 }
