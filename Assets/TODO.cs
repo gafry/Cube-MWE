@@ -27,4 +27,6 @@ public class TODO : MonoBehaviour
     // dodělat ten history buffer a podle něho volit velikost kernelu u filtru
     
     // zkusit u reprojekce AO(i) = lerp(AO(new), AO(i-1), a), a = 0.003
+    
+    // u svgf je sample code, zkusit stáhnout
 }
