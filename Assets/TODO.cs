@@ -15,4 +15,6 @@ public class TODO : MonoBehaviour
        ale bloky se generuji jen na workerech*/
        
     // GraphicsSettings.useScriptableRenderPipelineBatching = true;
+    
+    // rayIntersection.color = _Color * 0.5f * color;
 }
