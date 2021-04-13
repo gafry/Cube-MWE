@@ -23,4 +23,6 @@ public class TODO : MonoBehaviour
     float nDotL = max(0.f, dot(normal, lightDir));
     float3 hitColor = float3(0.7, 0.7, 0.7)*nDotL*factor;
     payload.colorAndDistance = float4(hitColor, 1);*/
+    
+    // dodělat ten history buffer a podle něho volit velikost kernelu u filtru
 }
