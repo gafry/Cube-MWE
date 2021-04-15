@@ -29,4 +29,6 @@ public class TODO : MonoBehaviour
     // zkusit u reprojekce AO(i) = lerp(AO(new), AO(i-1), a), a = 0.003
     
     // u svgf je sample code, zkusit stáhnout
+    
+    // predelat settings do pipeline
 }
