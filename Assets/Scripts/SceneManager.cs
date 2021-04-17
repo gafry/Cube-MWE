@@ -4,318 +4,400 @@ using UnityEngine.Experimental.Rendering;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
-using PathCreation;
 
 public enum Phase : ushort
 {
-	StartingJobs = 0x0000,
-	FinishingJobs = 0x0001,
-	Resting = 0x0002
+    Resting = 0x0000,
+    GeneratingBlocks = 0x0001,
+    GeneratingMeshData = 0x0002,
+    GeneratingFlora = 0x0003,
+    FillingMeshes = 0x0004,
+    RemovingChunks = 0x0005
 }
 
 public class SceneManager : MonoBehaviour
 {
-	public Material material;
+    public Material material;
 
-	public GameObject player;
+    public GameObject player;
 
-	public GameObject sun;
+    public GameObject sun;
 
-	//public PathCreator pathCreator;
+    public static Dictionary<Vector3Int, Chunk> chunks;
 
-	public static Dictionary<string, Chunk> chunks;
+    private int _chunkSize = 16;
+    private int _chunkSizeHalf = 8;
+    private int _radius = 13;
+    private Vector3Int _chunkWherePlayerStood;
 
-	private int _chunkSize = 16;
-	private int _chunkSizeHalf = 8;
-	private int _radius = 13;
-	private string _chunkWherePlayerStood = "";
+    private NativeList<JobHandle> _jobHandles;
+    private int _maxJobsAtOnce;
+    private Phase phase = Phase.Resting;
+    private List<Chunk> _toGenerate;
+    private List<Vector3Int> _toRemove;
 
-	private NativeList<JobHandle> _jobHandles;
-	private bool _jobsDone = true;
-	private int _maxJobsAtOnce;
-	private Phase phase = Phase.StartingJobs;
-	private List<Chunk> _toFinish = new List<Chunk>();
-	private bool runningJobs = false;
+    public NativeList<Vector2> centroids;
 
-	private RayTracingAccelerationStructure _accelerationStructure;
+    private int _iter;
+    private int runningJobs;
 
-	public readonly int accelerationStructureShaderId = Shader.PropertyToID("_AccelerationStructure");
+    private RayTracingAccelerationStructure _accelerationStructure;
 
-	private static SceneManager s_Instance;
+    public readonly int accelerationStructureShaderId = Shader.PropertyToID("_AccelerationStructure");
 
-	public static SceneManager Instance
-	{
-		get
-		{
-			if (s_Instance != null) return s_Instance;
-			
-			s_Instance = GameObject.FindObjectOfType<SceneManager>();
-			return s_Instance;
-		}
-	}
+    private static SceneManager s_Instance;
 
-	private void Start()
-	{
-		_maxJobsAtOnce = Mathf.Max(SystemInfo.processorCount / 2, 2);
-
-		chunks = new Dictionary<string, Chunk>();
-		_jobHandles = new NativeList<JobHandle>(Allocator.Temp);
-
-		for (int x = -(_chunkSize * _radius); x <= (_chunkSize * _radius); x += _chunkSize)
-		{
-			for (int z = -(_chunkSize * _radius); z <= (_chunkSize * _radius); z += _chunkSize)
-			{
-				string name = BuildChunkName(new Vector3(x, 0, z));
-				Chunk chunk = new Chunk(new Vector3(x, 0, z), material, name);
-				chunk.chunk.transform.parent = this.transform;
-
-				chunks.Add(name, chunk);
-
-				JobHandle jobHandle = chunk.StartCreatingChunk();
-				_jobHandles.Add(jobHandle);
-			}
-		}
-
-		foreach (KeyValuePair<string, Chunk> pair in chunks)
-		{
-			pair.Value.PrepareMesh();
-		}
-
-		JobHandle.CompleteAll(_jobHandles);
-
-		foreach (KeyValuePair<string, Chunk> pair in chunks)
-		{
-			pair.Value.FinishCreatingChunk();
-		}
-
-		_jobHandles.Dispose();
-
-		InitRaytracingAccelerationStructure();
-	}
-
-	// Update is called once per frame
-	//void Update()
-	public void StartUpdate()
-	{
-		Vector3Int chunkWherePlayerStandsV3 = ChunkWherePlayerStands();
-		string chunkWherePlayerStands = BuildChunkName(chunkWherePlayerStandsV3);
-		int jobsCounter = 0;
-
-		// If the player stands on the new chunk, calculate distance
-		// from this chunks center to other chunks centers in specified radius.
-		// If the chunk is in the distance, its added to dictionary and
-		// his mesh is created on another thread.
-		// Then, in meantime, loop the dictionary, if any chunk is too far away, remove
-		// it from the dictionary. Then finish processed chunks.
-		if (Settings.Instance.loadWorld)
-		{
-			if ((!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) || !_jobsDone) && phase == Phase.StartingJobs)
-			{
-				//List<Chunk> toFinish = new List<Chunk>();
-				List<string> toRemove = new List<string>();
-				_jobHandles = new NativeList<JobHandle>(Allocator.Temp);
-
-				Vector3Int chunkPosition = chunkWherePlayerStandsV3;
-				int radiusInChunks = (_chunkSize * _radius);
-
-				for (int x = chunkPosition.x - radiusInChunks; x < chunkPosition.x + radiusInChunks + 1; x += _chunkSize)
-				{
-					for (int z = chunkPosition.z - radiusInChunks; z < chunkPosition.z + radiusInChunks + 1; z += _chunkSize)
-					{
-						Vector2 heading;
-						heading.x = chunkPosition.x + _chunkSizeHalf - x;
-						heading.y = chunkPosition.z + _chunkSizeHalf - z;
-						float distanceSquared = heading.x * heading.x + heading.y * heading.y;
-						float distance = Mathf.Sqrt(distanceSquared);
-						if (distance <= radiusInChunks)
-						{
-							string chunkName = BuildChunkName(new Vector3(x, 0, z));
-							if (!chunks.ContainsKey(chunkName))
-							{
-								Chunk chunk = new Chunk(new Vector3(x, 0, z), material, chunkName);
-								chunk.chunk.transform.parent = this.transform;
-
-								chunks.Add(chunkName, chunk);
-								_toFinish.Add(chunk);
-
-								JobHandle jobHandle = chunk.StartCreatingChunk();
-								_jobHandles.Add(jobHandle);
-
-								jobsCounter++;
-							}
-						}
-
-						if (jobsCounter == _maxJobsAtOnce)
-							break;
-					}
-
-					if (jobsCounter == _maxJobsAtOnce)
-						break;
-				}
-
-				foreach (KeyValuePair<string, Chunk> pair in chunks)
-				{
-					Vector3 chunkPos = pair.Value.chunk.transform.position;
-					Vector2 heading;
-					heading.x = chunkPosition.x + _chunkSizeHalf - chunkPos.x;
-					heading.y = chunkPosition.z + _chunkSizeHalf - chunkPos.z;
-					float distanceSquared = heading.x * heading.x + heading.y * heading.y;
-					float distance = Mathf.Sqrt(distanceSquared);
-					if (distance > radiusInChunks + 2)
-					{
-						_accelerationStructure.RemoveInstance(pair.Value.chunk.GetComponent<Renderer>());						
-						Destroy(pair.Value.chunk);
-						toRemove.Add(pair.Key);
-					}
-				}
-
-				foreach (string key in toRemove)
-				{
-					chunks.Remove(key);
-				}
-
-				foreach (Chunk chunk in _toFinish)
-				{
-					chunk.PrepareMesh();
-				}
-
-				toRemove.Clear();
-
-				_chunkWherePlayerStood = chunkWherePlayerStands;
-
-				if (jobsCounter == _maxJobsAtOnce)
-					_jobsDone = false;
-				else
-					_jobsDone = true;
-
-				runningJobs = true;
-				/*phase = Phase.FinishingJobs;
-
-				JobHandle.CompleteAll(_jobHandles);
-
-				_jobHandles.Dispose();*/
-			}
-			else if (phase == Phase.FinishingJobs)
-			{
-				foreach (Chunk chunk in _toFinish)
-				{
-					chunk.FinishCreatingChunk();
-					_accelerationStructure.AddInstance(chunk.chunk.GetComponent<Renderer>(), null, null, true, false, 0x01);
-				}
-
-				_toFinish.Clear();
-
-				phase = Phase.Resting;
-			}
-			else
-			{
-				phase = Phase.StartingJobs;
-			}
-		}
-
-		if (_accelerationStructure != null)
-        {
-			//_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
-			//_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
-			_accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
-			_accelerationStructure.Build();
-		}
-	}
-
-	public void FinishUpdate()
-	{
-		if (Settings.Instance.loadWorld)
-		{
-			if (runningJobs && phase == Phase.StartingJobs)
-			{
-				phase = Phase.FinishingJobs;
-
-				JobHandle.CompleteAll(_jobHandles);
-
-				_jobHandles.Dispose();
-
-				runningJobs = false;
-			}
-		}
-	}
-
-	private Vector3Int ChunkWherePlayerStands()
-	{
-		int x = ((int)player.transform.position.x / _chunkSize) * _chunkSize;
-		int z;
-
-		if (player.transform.position.z < 0)
-			z = (((int)player.transform.position.z / _chunkSize) - 1) * _chunkSize;
-		else
-			z = ((int)player.transform.position.z / _chunkSize) * _chunkSize;
-
-		return new Vector3Int(x, 0, z);
-	}
-
-	public static string BuildChunkName(Vector3 position)
-	{
-		// Builds chunk name based on position 
-		return (int)position.x + "_" + (int)position.y + "_" + (int)position.z;
-	}
-
-	public Vector3 GetSunPosition()
+    public static SceneManager Instance
     {
-		return sun.transform.position;
+        get
+        {
+            if (s_Instance != null) return s_Instance;
+
+            s_Instance = GameObject.FindObjectOfType<SceneManager>();
+            return s_Instance;
+        }
     }
 
-	/*public void GetSunProgress()
+    private void Start()
     {
-		return (distanceTravelled % pathCreator.path.length) / pathCreator.path.length;
-	}*/
+        Random.InitState(420420);
 
-	private void OnDestroy()
-	{
-		// When the program ends, its necessary to
-		// dealocate data in BlockData native containers
-		BlockData.Vertices.Dispose();
-		BlockData.Triangles.Dispose();
-		BlockData.UVs.Dispose();
-	}
+        // initialization of lists and variables
+        _maxJobsAtOnce = System.Environment.ProcessorCount - 1;
 
-	public RayTracingAccelerationStructure RequestAccelerationStructure()
-	{
-		return _accelerationStructure;
-	}
+        _toGenerate = new List<Chunk>();
+        _toRemove = new List<Vector3Int>();
 
-	private void InitRaytracingAccelerationStructure()
-	{
-		RayTracingAccelerationStructure.RASSettings settings = new RayTracingAccelerationStructure.RASSettings();
-		// include default layer, not lights
-		settings.layerMask = -1;
-		// enable automatic updates
-		settings.managementMode = RayTracingAccelerationStructure.ManagementMode.Manual;
-		// include all renderer types
-		settings.rayTracingModeMask = RayTracingAccelerationStructure.RayTracingModeMask.Everything;
+        runningJobs = 0;
 
-		_accelerationStructure = new RayTracingAccelerationStructure(settings);
+        chunks = new Dictionary<Vector3Int, Chunk>();
 
-		// collect all objects in scene and add them to raytracing scene
-		Renderer[] renderers = FindObjectsOfType<Renderer>();
-		foreach (Renderer r in renderers)
-		{
-			if (r.CompareTag("Light"))
-			{
-				// mask for lights is 0x10 (for shadow rays - dont want to check intersection)
-				_accelerationStructure.AddInstance(r, null, null, true, false, 0x10);
-			}
-			else
-			{
-				_accelerationStructure.AddInstance(r, null, null, true, false, 0x01);
-			}
-		}
-		
-		// build raytracing AS
-		_accelerationStructure.Build();
-	}
+        centroids = new NativeList<Vector2>(Allocator.Persistent);
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
+        centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
 
-	public void AddInstanceToAS(Renderer renderer)
+        // create starting chunks
+        _jobHandles = new NativeList<JobHandle>(Allocator.Temp);
+        Vector3Int chunkWherePlayerStands = ChunkWherePlayerStands();
+        int radiusInChunks = _chunkSize * _radius;
+        FindMissingChunks(chunkWherePlayerStands, radiusInChunks);
+
+        foreach (var chunkToGen in _toGenerate)
+            _jobHandles.Add(chunkToGen.GenerateBlocks(centroids));
+
+        JobHandle.CompleteAll(_jobHandles);
+        _jobHandles.Dispose();
+
+        _jobHandles = new NativeList<JobHandle>(Allocator.Temp);
+
+        foreach (var chunkToGen in _toGenerate)
+        {
+            if (!chunkToGen.IsEmpty())
+            {
+                _jobHandles.Add(chunkToGen.GenerateMeshData());
+                chunkToGen.PrepareMesh();
+            }
+        }
+
+        JobHandle.CompleteAll(_jobHandles);
+        _jobHandles.Dispose();
+
+        _jobHandles = new NativeList<JobHandle>(Allocator.Temp);
+
+        foreach (var chunkToGen in _toGenerate)
+        {
+            if (chunkToGen.AreTrees())
+            {
+                _jobHandles.Add(chunkToGen.GenerateTrees());
+            }
+        }
+
+        JobHandle.CompleteAll(_jobHandles);
+        _jobHandles.Dispose();
+
+        foreach (var chunkToGen in _toGenerate)
+            if (!chunkToGen.IsEmpty())
+                chunkToGen.FinishCreatingChunk();
+
+        _toGenerate.Clear();
+
+        InitRaytracingAccelerationStructure();
+
+        if (Settings.Instance.loadWorld)
+            _jobHandles = new NativeList<JobHandle>(Allocator.Persistent);
+    }
+
+    // Update is called once per frame
+    //void Update()
+    public void Update()
     {
-		_accelerationStructure.AddInstance(renderer, null, null, true, false, 0x01);
-		_accelerationStructure.Build();
-	}
+        // if loading world is not enabled, build AS and return
+        if (!Settings.Instance.loadWorld)
+        {
+            if (_accelerationStructure != null)
+            {
+                //_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
+                //_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
+                _accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
+                _accelerationStructure.Build();
+            }
+
+            return;
+        }
+
+        if (runningJobs > 0)
+        {
+            runningJobs = 0;
+            JobHandle.CompleteAll(_jobHandles);
+        }
+        _jobHandles.Dispose();
+        _jobHandles = new NativeList<JobHandle>(Allocator.Persistent);
+
+        Vector3Int chunkWherePlayerStands = ChunkWherePlayerStands();
+        if (!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) && phase == Phase.Resting)
+        {
+            _chunkWherePlayerStood = chunkWherePlayerStands;
+
+            int radiusInChunks = _chunkSize * _radius;
+            FindMissingChunks(chunkWherePlayerStands, radiusInChunks);
+
+            if (_toGenerate.Count > 0)
+            {
+                _iter = _toGenerate.Count - 1;
+                phase = Phase.GeneratingBlocks;
+            }
+            else
+            {
+                phase = Phase.Resting;
+            }
+
+        }
+        else if (phase == Phase.GeneratingBlocks)
+        {
+            for (; _iter >= 0 && runningJobs < _maxJobsAtOnce * 5; _iter--)
+            {
+                _jobHandles.Add(_toGenerate[_iter].GenerateBlocks(centroids));
+                runningJobs++;
+            }
+
+            if (_iter < 0)
+            {
+                phase = Phase.GeneratingMeshData;
+                _iter = _toGenerate.Count - 1;
+            }
+        }
+        else if (phase == Phase.GeneratingMeshData)
+        {
+            for (; _iter >= 0 && runningJobs <= _maxJobsAtOnce * 4; _iter--)
+            {
+                if (!_toGenerate[_iter].IsEmpty())
+                {
+                    _jobHandles.Add(_toGenerate[_iter].GenerateMeshData());
+                    _toGenerate[_iter].PrepareMesh();
+                    runningJobs++;
+                }
+            }
+
+            if (_iter < 0)
+            {
+                phase = Phase.GeneratingFlora;
+                _iter = _toGenerate.Count - 1;
+            }
+        }
+        else if (phase == Phase.GeneratingFlora)
+        {
+            for (; _iter >= 0 && runningJobs <= _maxJobsAtOnce * 4; _iter--)
+            {
+                if (_toGenerate[_iter].AreTrees())
+                {
+                    _jobHandles.Add(_toGenerate[_iter].GenerateTrees());
+                    runningJobs++;
+                }
+            }
+
+            if (_iter < 0)
+            {
+                phase = Phase.FillingMeshes;
+                _iter = _toGenerate.Count - 1;
+            }
+        }
+        else if (phase == Phase.FillingMeshes)
+        {
+            int runningFinishes = 0;
+
+            for (; _iter >= 0 && runningFinishes < 2; _iter--)
+            {
+                if (!_toGenerate[_iter].IsEmpty())
+                {
+                    runningFinishes += _toGenerate[_iter].FinishCreatingChunk();
+                    _accelerationStructure.AddInstance(_toGenerate[_iter].chunk.GetComponent<Renderer>(), null, null, true, false, 0x01);
+                }
+            }
+
+            if (_iter < 0)
+            {
+                phase = Phase.RemovingChunks;
+                _toGenerate.Clear();
+            }
+        }
+        else if (phase == Phase.RemovingChunks)
+        {
+            /*int radiusInChunks = _chunkSize * _radius;
+            RemoveChunks(chunkWherePlayerStands, radiusInChunks);
+            if (_iter < 0)*/
+                phase = Phase.Resting;
+        }
+        else
+        {
+            phase = Phase.Resting;
+        }
+
+        if (_accelerationStructure != null)
+        {
+            //_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
+            //_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
+            _accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
+            _accelerationStructure.Build();
+        }
+
+        if (phase == Phase.Resting)
+            Settings.Instance.reprojectWithIDs = true;
+        else
+            Settings.Instance.reprojectWithIDs = false;
+    }
+
+    // Loops through all possible chunks and saves those that are not created yet to _toFinish list
+    public void FindMissingChunks(Vector3Int chunkPosition, int radiusInChunks)
+    {
+        for (int x = chunkPosition.x - radiusInChunks; x < chunkPosition.x + radiusInChunks + 1; x += _chunkSize)
+        {
+            for (int z = chunkPosition.z - radiusInChunks; z < chunkPosition.z + radiusInChunks + 1; z += _chunkSize)
+            {
+                Vector2 heading;
+                heading.x = chunkPosition.x + _chunkSizeHalf - x;
+                heading.y = chunkPosition.z + _chunkSizeHalf - z;
+                float distanceSquared = heading.x * heading.x + heading.y * heading.y;
+                float distance = Mathf.Sqrt(distanceSquared);
+                if (distance <= radiusInChunks)
+                {
+                    if (!chunks.ContainsKey(new Vector3Int(x, 0, z)))
+                    {
+                        for (int y = 0; y < 3; y++)
+                        {
+                            Chunk chunk = new Chunk(new Vector3Int(x, y * 16, z), material);
+                            chunk.chunk.transform.parent = this.transform;
+
+                            chunks.Add(new Vector3Int(x, y * 16, z), chunk);
+                            _toGenerate.Add(chunk);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Loop through all chunks in the scene and check their distance,
+    // if not in radius, destroy them
+    public void RemoveChunks(Vector3Int chunkPosition, int radiusInChunks)
+    {
+        foreach (KeyValuePair<Vector3Int, Chunk> pair in chunks)
+        {
+            Vector3 chunkPos = pair.Value.chunk.transform.position;
+            Vector2 heading;
+            heading.x = chunkPosition.x + _chunkSizeHalf - chunkPos.x;
+            heading.y = chunkPosition.z + _chunkSizeHalf - chunkPos.z;
+            float distanceSquared = heading.x * heading.x + heading.y * heading.y;
+            float distance = Mathf.Sqrt(distanceSquared);
+            if (distance > radiusInChunks + 2)
+            {
+                if (!pair.Value.IsEmpty())
+                    _accelerationStructure.RemoveInstance(pair.Value.chunk.GetComponent<Renderer>());
+                pair.Value.DisposeBlocks();
+                Destroy(pair.Value.chunk);
+                _toRemove.Add(pair.Key);
+            }
+        }
+
+        foreach (Vector3Int key in _toRemove)
+        {
+            chunks.Remove(key);
+        }
+
+        _toRemove.Clear();
+    }
+
+    // Returns chunk position of the chunk where player stands at the moment
+    private Vector3Int ChunkWherePlayerStands()
+    {
+        int x = ((int)player.transform.position.x / _chunkSize) * _chunkSize;
+        int z;
+
+        if (player.transform.position.z < 0)
+            z = (((int)player.transform.position.z / _chunkSize) - 1) * _chunkSize;
+        else
+            z = ((int)player.transform.position.z / _chunkSize) * _chunkSize;
+
+        return new Vector3Int(x, 0, z);
+    }
+
+    private void OnDestroy()
+    {
+        // When the program ends, its necessary to
+        // dealocate data in BlockData native containers
+        BlockData.Vertices.Dispose();
+        BlockData.Triangles.Dispose();
+        BlockData.UVs.Dispose();
+
+        centroids.Dispose();
+        _jobHandles.Dispose();
+    }
+
+    public RayTracingAccelerationStructure RequestAccelerationStructure()
+    {
+        return _accelerationStructure;
+    }
+
+    public Vector3 GetSunPosition()
+    {
+        return sun.transform.position;
+    }
+
+    private void InitRaytracingAccelerationStructure()
+    {
+        RayTracingAccelerationStructure.RASSettings settings = new RayTracingAccelerationStructure.RASSettings();
+        // include default layer, not lights
+        settings.layerMask = -1;
+        // enable automatic updates
+        settings.managementMode = RayTracingAccelerationStructure.ManagementMode.Manual;
+        // include all renderer types
+        settings.rayTracingModeMask = RayTracingAccelerationStructure.RayTracingModeMask.Everything;
+
+        _accelerationStructure = new RayTracingAccelerationStructure(settings);
+
+        // collect all objects in scene and add them to raytracing scene
+        Renderer[] renderers = FindObjectsOfType<Renderer>();
+        foreach (Renderer r in renderers)
+        {
+            if (r.CompareTag("Light"))
+            {
+                // mask for lights is 0x10 (for shadow rays - dont want to check intersection)
+                _accelerationStructure.AddInstance(r, null, null, true, false, 0x10);
+            }
+            else
+            {
+                _accelerationStructure.AddInstance(r, null, null, true, false, 0x01);
+            }
+        }
+
+        // build raytracing AS
+        _accelerationStructure.Build();
+    }
 }

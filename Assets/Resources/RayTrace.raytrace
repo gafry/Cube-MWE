@@ -1,13 +1,16 @@
 ﻿#pragma max_recursion_depth 11
 
 #include "./../Shaders/Common.hlsl"
+#include "./../Shaders/DirectRays.hlsl"
+#include "./../Shaders/Shadows.hlsl"
 
 RWTexture2D<float4> _OutputTarget;
-float4 _OutputTargetSize;
 int _FrameIndex;
 int _FrameCounter;
 int _DepthOfRecursion;
 float3 LightPosition;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> Position;
 
 inline float3 BackgroundColor(float3 origin, float3 direction)
 {
@@ -29,7 +32,7 @@ inline float3 BackgroundColor(float3 origin, float3 direction)
 	//return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
 }
 
-[shader("raygeneration")]
+/*[shader("raygeneration")]
 void MyRaygenShader()
 {
 	const uint2 dispatchIdx = DispatchRaysIndex().xy;
@@ -68,7 +71,81 @@ void MyRaygenShader()
 		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
 	}
 
-  _OutputTarget[dispatchIdx] = color;
+	_OutputTarget[dispatchIdx] = color;
+}*/
+
+[shader("raygeneration")]
+void DirectRaygenShader()
+{
+	const uint2 dispatchIdx = DispatchRaysIndex().xy;
+	const uint2 dispatchDim = DispatchRaysDimensions();
+
+	// Load the position and normal from our g-buffer
+	float4 worldPos = Position[dispatchIdx];
+	
+	if (worldPos.w < 0.2f)
+	{
+		_OutputTarget[dispatchIdx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+		return;
+	}
+
+	float4 worldNorm = GBufferNormals[dispatchIdx];
+
+	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
+
+	// Sample cosine-weighted hemisphere around surface normal to pick a random ray direction
+	float3 worldDir = getCosHemisphereSample(randSeed, worldNorm.xyz);
+
+	float4 color = (0, 0, 0, 0);
+	float primary = 0.0f;
+	float sunSize = 100.0f;
+	float secondary = 0.0f;
+
+	for (int i = 0; i < 3; i++)
+	{
+		/*if (_DepthOfRecursion > 0)
+			secondary = shootDirectLightRay(worldPos.xyz, worldDir, 1e-5f, _CameraFarDistance, _DepthOfRecursion, randSeed);
+		else
+			secondary = 2.0f;*/
+
+		if (LightPosition.y + sunSize > 0)
+		{
+			float3 dirToLight3 = normalize(LightPosition - worldPos);
+			float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(randSeed, dirToLight3);
+			dirToLight3 = normalize(sampleOnHemisphere - worldPos);
+			float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
+			float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+			float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+
+			// Shoot shadow ray with our encapsulated shadow tracing function
+			float shadow = shootShadowRay(worldPos, dirToLight3, 1.0e-4f, distToLight3);
+			primary += nDotL * max(0.1f, shadow);
+		}
+		else
+		{
+			float3 dirToLight3 = normalize(LightPosition - worldPos);
+			float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(randSeed, dirToLight3);
+			dirToLight3 = normalize(sampleOnHemisphere - worldPos);
+			float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
+			float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+			float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+
+			// Shoot shadow ray with our encapsulated shadow tracing function
+			float shadow = 0.0f;
+			primary += nDotL * max(0.1f, shadow);
+		}
+	}
+
+	float shadow = max(0.1f, (primary / 3));// *0.5f * secondary;
+	color = float4(shadow, shadow, shadow, 1);
+
+	if (_FrameIndex > 1)
+	{
+		float a = 1.0f / (float)_FrameIndex;
+		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
+	}
+
+	_OutputTarget[dispatchIdx] = color;
 }
 
 [shader("miss")]
@@ -77,9 +154,8 @@ void MissShader(inout RayPayload rayPayload : SV_RayPayload)
 	float3 origin = WorldRayOrigin();
 	float3 direction = WorldRayDirection();
 	rayPayload.color = float4(BackgroundColor(origin, direction), 1.0f);
+	//rayPayload.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
 }
-
-#include "./../Shaders/Shadows.hlsl"
 
 [shader("miss")]
 void ShadowMiss(inout RayPayloadShadow shadowRayPayload : SV_RayPayload) {

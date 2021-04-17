@@ -13,17 +13,20 @@ public class Settings : MonoBehaviour
     [Header("Ray tracing options")]
     public bool groundTruthIfThereIsNoMotion = false;
     public bool rayTracingOn = true;
+    public bool localLightsOn = false;
     public bool AO = false;
     public bool reprojectionOn = false;
-    public bool filtering = false;
+    public bool varianceOn = false;
+    public bool filteringOn = false;
     public bool combineAlbedoAndShadows = false;
-    [Range(2, 5)]
+    [Range(0, 5)]
     public int depthOfRecursion = 2;
     [Space(20)]
 
     [Header("Runtime variables")]
     public bool cameraMoved = false;
     public bool mouseMoved = false;
+    public bool reprojectWithIDs = true;
 
     public static Settings Instance
     {

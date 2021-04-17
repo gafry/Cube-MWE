@@ -8,10 +8,18 @@ using System;
 public enum Block : ushort
 {
     air = 0x0000,
-    dirt = 0x0001,
-    grass = 0x0002,
-    stone = 0x0003,
-    wall = 0x0004
+    grass = 0x0001,
+    dirt = 0x0002,
+    wall = 0x0003,
+    stone = 0x0004,
+    snow = 0x0005,
+    ice = 0x0006,
+    rock = 0x0007,
+    none = 0x0008,
+    sand = 0x0009,
+    sandstone = 0x000a,
+    tree = 0x000b,
+    leaves = 0x000c,
 }
 
 public enum Directions
@@ -69,15 +77,23 @@ public struct BlockData
     };
 
     [ReadOnly]
-    public static readonly NativeArray<float2x4> UVs = new NativeArray<float2x4>(5, Allocator.Persistent)
+    public static readonly NativeArray<float2x4> UVs = new NativeArray<float2x4>(13, Allocator.Persistent)
     {
-        // top-left, top-right, bottom-left, bottom-right
+        // bottom-left, top-left, top-right, bottom-right
+        // float2x4 have to be written like { 0, 2, 4, 6, 1, 3, 5, 7}
         [0] = new float2x4(0, 0, 0, 0, 0, 0, 0, 0),
-        [1] = new float2x4(0, 0.5f, 0.5f, 0.5f, 0, 0, 0.5f, 0),
-        [2] = new float2x4(0, 1, 0.5f, 1, 0, 0.5f, 0.5f, 0.5f),
-        //[3] = new float2x4(0.5f, 0.5f, 1, 0.5f, 0.5f, 0, 1, 0),
-        [3] = new float2x4(1, 0.5f, 0.5f, 0.5f, 1, 0, 0.5f, 0),
-        [4] = new float2x4(0.5f, 1, 1, 1, 0.5f, 0.5f, 1, 0.5f)
+        [1] = new float2x4(new float2(0, 0.75f), new float2(0, 1), new float2(0.25f, 1), new float2(0.25f, 0.75f)),
+        [2] = new float2x4(new float2(0.25f, 0.75f), new float2(0.25f, 1), new float2(0.5f, 1), new float2(0.5f, 0.75f)),
+        [3] = new float2x4(new float2(0, 0.5f), new float2(0, 0.75f), new float2(0.25f, 0.75f), new float2(0.25f, 0.5f)),
+        [4] = new float2x4(new float2(0.25f, 0.5f), new float2(0.25f, 0.75f), new float2(0.5f, 0.75f), new float2(0.5f, 0.5f)),
+        [5] = new float2x4(new float2(0, 0.25f), new float2(0, 0.5f), new float2(0.25f, 0.5f), new float2(0.25f, 0.25f)),
+        [6] = new float2x4(new float2(0.25f, 0.25f), new float2(0.25f, 0.5f), new float2(0.5f, 0.5f), new float2(0.5f, 0.25f)),
+        [7] = new float2x4(new float2(0, 0), new float2(0, 0.25f), new float2(0.25f, 0.25f), new float2(0.25f, 0)),
+        [8] = new float2x4(new float2(0.25f, 0), new float2(0.25f, 0.25f), new float2(0.5f, 0.25f), new float2(0.5f, 0)),
+        [9] = new float2x4(new float2(0.5f, 0.75f), new float2(0.5f, 1), new float2(0.75f, 1), new float2(0.75f, 0.75f)),
+        [10] = new float2x4(new float2(0.75f, 0.75f), new float2(0.75f, 1), new float2(1, 1), new float2(1, 0.75f)),
+        [11] = new float2x4(new float2(0.5f, 0.5f), new float2(0.5f, 0.75f), new float2(0.75f, 0.75f), new float2(0.75f, 0.5f)),
+        [12] = new float2x4(new float2(0.75f, 0.5f), new float2(0.75f, 0.75f), new float2(1, 0.75f), new float2(1, 0.5f))
     };
 }
 
@@ -96,9 +112,13 @@ public static class BlockUtils
         return faceVertices;
     }
 
-    public static int GetBlockIndex(int3 position) => position.x + position.z * 16 + position.y * 16 * 16;
+    public static int GetBlockIndex(int3 position) => position.y + position.z * 18 + position.x * 18 * 18;
+    //public static int GetBlockIndex(int3 position) => position.x + position.z * 16 + position.y * 16 * 16;
+
+    public static int GetBlockIndex16x22x16(int3 position) => position.y + position.x * 22 + position.z * 22 * 16;
 
     public static bool IsEmpty(this Block block) => block == Block.air;
+    public static bool IsLeaf(this Block block) => block == Block.leaves;
 
     public static int3 GetPositionInDirection(Directions direction, int x, int y, int z)
     {

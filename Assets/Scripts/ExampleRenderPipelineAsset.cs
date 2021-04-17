@@ -12,6 +12,9 @@ public class ExampleRenderPipelineAsset : RenderPipelineAsset
     public ComputeShader ReprojectionShader;
 
     [SerializeField]
+    public ComputeShader VarianceShader;
+
+    [SerializeField]
     public ComputeShader FilterShader;
 
     [SerializeField]

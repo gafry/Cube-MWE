@@ -5,6 +5,9 @@
 #define size_x 24
 #define size_y 24
 
+#define M_PI (3.14159265358979323846264338327950288)
+#define lightIntensity (6.0)
+
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
 Texture2D<float4> ShadowInput;
@@ -18,5 +21,6 @@ void BlitIt(uint3 dispatchThreadId : SV_DispatchThreadID)
     int3 texturelocation = dispatchThreadId;
 
     //BlitOutput[dispatchThreadId.xy] = pow(ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation), 2.2f);
-    BlitOutput[dispatchThreadId.xy] = ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation);
+    float4 color = ColorInput.Load(texturelocation);
+    BlitOutput[dispatchThreadId.xy] = (color / M_PI) * lightIntensity * ShadowInput.Load(texturelocation);
 }

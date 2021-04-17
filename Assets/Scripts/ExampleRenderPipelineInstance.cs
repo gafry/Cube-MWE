@@ -18,18 +18,14 @@ public class ExampleRenderPipelineInstance : RenderPipeline
     // Unity calls this method once per frame for each CameraType that is currently rendering.
     protected override void Render(ScriptableRenderContext context, Camera[] cameras)
     {
-        SceneManager.Instance.StartUpdate();
-
         // Execute Render function for each camera
         foreach (Camera camera in cameras)
         {
             renderer.Render(context, camera, _renderPipelineAsset.MotionVectorShader, _renderPipelineAsset.ReprojectionShader, _renderPipelineAsset.BlitShader,
-                _renderPipelineAsset.FilterShader);
+                _renderPipelineAsset.FilterShader, _renderPipelineAsset.VarianceShader);
         }
 
         // Tell the Scriptable Render Context to tell the graphics API to perform the scheduled commands
         context.Submit();
-
-        SceneManager.Instance.FinishUpdate();
     }
 }

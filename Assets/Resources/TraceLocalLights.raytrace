@@ -1,0 +1,107 @@
+﻿#pragma max_recursion_depth 11
+
+#include "./../Shaders/Common.hlsl"
+
+RWTexture2D<float4> _OutputTarget;
+int _FrameIndex;
+int _FrameCounter;
+float Lights[100];
+int NumberOfLights;
+Texture2D<float4> Position;
+
+// A wrapper function that encapsulates shooting an ambient occlusion ray query
+float shootShadowRay( float3 orig, float3 dir, float minT, float maxT, int mask, int missShader, float defaultValue )
+{
+	// Setup ambient occlusion ray and payload
+	RayPayloadAO rayPayloadAO = { defaultValue };  // Specified value is returned if we hit a surface
+	RayDesc rayDescriptor;
+	rayDescriptor.Origin    = orig;               // Where does our ray start?
+	rayDescriptor.Direction = dir;                // What direction does our ray go?
+	rayDescriptor.TMin      = minT;               // Min distance to detect an intersection
+	rayDescriptor.TMax      = maxT;               // Max distance to detect an intersection
+
+	// Dont intersect lights
+	TraceRay(_AccelerationStructure,
+		RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+		mask, 0, 1, missShader, rayDescriptor, rayPayloadAO);
+
+	// Copy our AO value out of the ray payload.
+	return rayPayloadAO.AOValue;
+}
+
+[shader("raygeneration")]
+void LocalLightsShader()
+{
+	const uint2 dispatchIdx = DispatchRaysIndex().xy;
+	const uint2 dispatchDim = DispatchRaysDimensions();
+
+	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
+
+	// Load the position from our g-buffer
+	float4 worldPos = Position[dispatchIdx];
+
+	// default AO
+	float shadow = 1.0f;
+	float shadow2 = 0.0f;
+	int rand = 1;
+	int position = 1;
+
+	// Our G-buffer stores 0 in worldPos.w for background pixels; only shoot an AO ray elsewhere
+	if (worldPos.w != 0.0f)
+	{
+		rand = nextRand(randSeed) * (NumberOfLights - 1);
+		position = 0;
+		if (rand <= 1.0f)
+			position = 0;
+		else if (rand <= 2.0f)
+			position = 1;
+		else
+			position = 2;
+
+		position *= 3;
+		float3 pos = float3(Lights[position], Lights[position + 1], Lights[position + 2]);
+		//float3 dirToLight = normalize(Lights[uint2(rand, 0)] - worldPos);
+		//float3 sampleOnHemisphere = Lights[uint2(rand, 0)] + SampleHemisphereCosine(randSeed, dirToLight);
+		float3 dirToLight = normalize(pos - worldPos);
+		float3 sampleOnHemisphere = pos + SampleHemisphereCosine(randSeed, dirToLight);
+		dirToLight = normalize(sampleOnHemisphere - worldPos);
+		float distToLight = length(sampleOnHemisphere - worldPos);
+
+		// Shoot ray just with lights enabled to see if it hits the light
+		shadow = shootShadowRay(worldPos.xyz, dirToLight, 3e-5f, 10, 0x10, 1, 1.0f);
+
+		// Shoot another ray with lights disabled to see if it hits other geometry
+		if (shadow == 1.0f)
+			shadow2 = shootShadowRay(worldPos.xyz, dirToLight, 3e-5f, 10, 0x01, 0, 0.0f);
+	}
+
+	// multiply both shadows -> if both of them are 1s, area is lighted
+	shadow = shadow * shadow2;
+
+	float4 color = float4(shadow, shadow, shadow, 1.0f);
+	if (position == 0)
+		color = float4(1, 0, 0, 1.0f);
+
+	if (_FrameIndex > 1)
+	{
+		float a = 1.0f / (float)_FrameIndex;
+		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
+	}
+
+	//_OutputTarget[dispatchIdx] = float4(ResultAO, ResultAO, ResultAO, 1.0f);
+	_OutputTarget[dispatchIdx] = color;
+}
+
+// 1 in inspector
+[shader("miss")]
+void MissShader(inout RayPayloadAO rayPayloadAO : SV_RayPayload)
+{
+	rayPayloadAO.AOValue = 0.0f;
+}
+
+// 0 in inspector
+[shader("miss")]
+void MissShader2(inout RayPayloadAO rayPayloadAO : SV_RayPayload)
+{
+	rayPayloadAO.AOValue = 1.0f;
+}

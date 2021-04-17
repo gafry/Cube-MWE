@@ -1,0 +1,85 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel EstimateVariance
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> ShadowInput;
+RWTexture2D<float4> HistoryBuffer;
+
+static const float gaussianFilter5x5[5][5] =
+{
+    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 },
+    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
+    { 7.0 / 273.0, 26.0 / 273.0, 41.0 / 273.0, 26.0 / 273.0, 7.0 / 273.0 },
+    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
+    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 }
+};
+
+static const float offset[25][2] =
+{
+    { -2, -2 },
+    { -1, -2 },
+    {  0, -2 },
+    {  1, -2 },
+    {  2, -2 },
+
+    { -2, -1 },
+    { -1, -1 },
+    {  0, -1 },
+    {  1, -1 },
+    {  2, -1 },
+
+    { -2,  0 },
+    { -1,  0 },
+    {  0,  0 },
+    {  1,  0 },
+    {  2,  0 },
+
+    { -2,  1 },
+    { -1,  1 },
+    {  0,  1 },
+    {  1,  1 },
+    {  2,  1 },
+
+    { -2,  2 },
+    { -1,  2 },
+    {  0,  2 },
+    {  1,  2 },
+    {  2,  2 }
+};
+
+// Declare one thread for each texel of the current block size.
+[numthreads(size_x, size_y, 1)]
+void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 history = HistoryBuffer.Load(dispatchThreadId.xy);
+    float sum = 0.0f;
+
+    if (history.y < 0.5f && history.z < 0.15f)
+    {
+        HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 2);
+    }
+    else
+    {
+        for (int x = -3; x < 4; x++)
+        {
+            for (int y = -3; y < 4; y++)
+            {
+                int3 uv = dispatchThreadId + int3(x, y, 0);
+
+                float shadowTmp = ShadowInput.Load(uv).x;
+                sum += shadowTmp * (1.0f / 49.0f);
+            }
+        }
+
+        float dif = ShadowInput.Load(dispatchThreadId).x - sum;
+        if (dif < 0.01f && history.x >= 3)
+            HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 1);
+        else
+            HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 0);
+    }
+}

@@ -90,7 +90,7 @@
             }
     }
 
-        SubShader
+        /*SubShader
             {
                 Pass
                 {
@@ -110,7 +110,7 @@
                     [shader("closesthit")]
                     void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
                     {
-                        /*// Fetch the indices of the currentr triangle
+                        *//*// Fetch the indices of the currentr triangle
                         uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
 
                         // Fetch the 3 vertices
@@ -126,14 +126,14 @@
                         float3x3 objectToWorld = (float3x3)ObjectToWorld3x4();
                         float3 normalWS = normalize(mul(objectToWorld, normalOS));
 
-                        rayPayload.color = float4(0.5f * (normalWS + 1.0f), 0);*/
+                        rayPayload.color = float4(0.5f * (normalWS + 1.0f), 0);*//*
 
                         rayPayload.color = _Color;
                     }
 
                     ENDHLSL
                 }
-            }
+            }*/
 
             SubShader
             {
@@ -158,68 +158,95 @@
                 }
             }
 
-                SubShader
-                    {
-                        Pass
-                        {
-                            Name "GBuffer"
-                            Tags { "LightMode" = "RayTracing" }
+    SubShader
+    {
+        Pass
+        {
+            Name "GBuffer"
+            Tags { "LightMode" = "RayTracing" }
 
-                            HLSLPROGRAM
+            HLSLPROGRAM
 
-                            #pragma target 3.5
-                            #pragma raytracing test
+            #pragma target 3.5
+            #pragma raytracing test
 
-                            #include "./Common.hlsl"
+            #include "./Common.hlsl"
 
-                            CBUFFER_START(UnityPerMaterial)
-                            float4 _Color;
-                    //Texture2D _BaseColorMap;
-                    CBUFFER_END
+            CBUFFER_START(UnityPerMaterial)
+            float4 _Color;
+            CBUFFER_END
 
-                    Texture2D _BaseColorMap;
-                    SamplerState sampler_BaseColorMap;
+            Texture2D _BaseColorMap;
+            SamplerState sampler_BaseColorMap;
 
-                    [shader("closesthit")]
-                    void ClosestHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-                    {
-                        // Fetch the indices of the currentr triangle
-                        uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+            [shader("closesthit")]
+            void ClosestHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+            {
+                // Fetch the indices of the currentr triangle
+                uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
 
-                        // Fetch the 3 vertices
-                        IntersectionVertex v0, v1, v2;
-                        FetchIntersectionVertex(triangleIndices.x, v0);
-                        FetchIntersectionVertex(triangleIndices.y, v1);
-                        FetchIntersectionVertex(triangleIndices.z, v2);
+                // Fetch the 3 vertices
+                IntersectionVertex v0, v1, v2;
+                FetchIntersectionVertex(triangleIndices.x, v0);
+                FetchIntersectionVertex(triangleIndices.y, v1);
+                FetchIntersectionVertex(triangleIndices.z, v2);
 
-                        // Compute the full barycentric coordinates
-                        float3 barycentricCoordinates = float3(1.0 - attributeData.barycentrics.x - attributeData.barycentrics.y, attributeData.barycentrics.x, attributeData.barycentrics.y);
+                // Compute the full barycentric coordinates
+                float3 barycentricCoordinates = float3(1.0 - attributeData.barycentrics.x - attributeData.barycentrics.y, attributeData.barycentrics.x, attributeData.barycentrics.y);
 
-                        float3 normalOS = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.normalOS, v1.normalOS, v2.normalOS, barycentricCoordinates);
-                        float3x3 objectToWorld = (float3x3)ObjectToWorld3x4();
-                        float3 normalWS = normalize(mul(objectToWorld, normalOS));
+                float3 normalOS = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.normalOS, v1.normalOS, v2.normalOS, barycentricCoordinates);
+                float3x3 objectToWorld = (float3x3)ObjectToWorld3x4();
+                float3 normalWS = normalize(mul(objectToWorld, normalOS));
 
-                        // Get position in world space.
-                        float3 origin = WorldRayOrigin();
-                        float3 direction = WorldRayDirection();
-                        float t = RayTCurrent();
-                        float3 positionWS = origin + direction * t;
+                // Get position in world space.
+                float3 origin = WorldRayOrigin();
+                float3 direction = WorldRayDirection();
+                float t = RayTCurrent();
+                float3 positionWS = origin + direction * t;
 
-                        float instanceID = InstanceID() / 4.0f;
-                        rayPayload.normalAndId = float4(normalWS, instanceID);
-                        rayPayload.worldPosition = float4(positionWS, 1.0f);
-                        rayPayload.albedo = _Color.xyz;
+                float instanceID = InstanceID() / 4.0f;
+                rayPayload.normalAndId = float4(normalWS, instanceID);
+                rayPayload.worldPosition = float4(positionWS, 1.0f);
+                rayPayload.albedo = _Color.xyz;
 
-                        //SamplerState sampler_BaseColorMap;
-                        //float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
-                        //float4 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
-                        //UNITY_DECLARE_TEX2D(_BaseColorMap);
-                        //float4 textureColor = UNITY_SAMPLE_TEX2D(_BaseColorMap, float2(0.1, 0.2));
-                        //float4 textureColor = tex2D(_BaseColorMap, float2(0.1, 0.2));
-                        //rayPayload.albedo = textureColor.xyz;
-                    }
+                //SamplerState sampler_BaseColorMap;
+                //float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
+                //float4 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                //UNITY_DECLARE_TEX2D(_BaseColorMap);
+                //float4 textureColor = UNITY_SAMPLE_TEX2D(_BaseColorMap, float2(0.1, 0.2));
+                //float4 textureColor = tex2D(_BaseColorMap, float2(0.1, 0.2));
+                //rayPayload.albedo = textureColor.xyz;
+            }
 
-                    ENDHLSL
-                }
+        ENDHLSL
         }
+    }
+
+    SubShader
+    {
+        Pass
+        {
+            Name "CubeLights"
+            Tags { "LightMode" = "RayTracing" }
+
+            HLSLPROGRAM
+
+            #pragma target 3.5
+            #pragma raytracing test
+
+            #include "./Common.hlsl"
+
+            CBUFFER_START(UnityPerMaterial)
+            float4 _Color;
+            CBUFFER_END
+
+            [shader("closesthit")]
+            void ClosestHitShader(inout RayPayloadAO rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+            {
+                rayPayload.AOValue = 1.0;
+            }
+
+            ENDHLSL
+        }
+    }
 }

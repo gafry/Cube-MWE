@@ -8,9 +8,12 @@ public class CameraRenderer : MonoBehaviour
     private RayTracingShader _shader;
     private RayTracingShader _shaderGBuffer;
     private RayTracingShader _shaderAO;
+    private RayTracingShader _shaderLocalLights;
+    private RayTracingShader _shaderCubeLights;
 
     private int _motionVectorKernelId;
     private int _reprojectionKernelId;
+    private int _varianceKernelId;
     private int _blitKernelId;
     private int _filterKernelId;
 
@@ -53,6 +56,8 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _ReprojectedOutputId = Shader.PropertyToID("ReprojectedOutput");
     private readonly int _GBufferNormalsId = Shader.PropertyToID("GBufferNormals");
     private readonly int _GBufferAlbedoId = Shader.PropertyToID("GBufferAlbedo");
+    private readonly int _HistoryBufferId = Shader.PropertyToID("HistoryBuffer");
+    private readonly int _PrevHistoryBufferId = Shader.PropertyToID("PrevHistoryBuffer");
     private readonly int _PrevGBufferNormalsId = Shader.PropertyToID("PrevGBufferNormals");
     private readonly int _PrevGBufferPositionId = Shader.PropertyToID("PrevGBufferPosition");
     private readonly int _ColorInputId = Shader.PropertyToID("ColorInput");
@@ -62,17 +67,18 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _StepWidthId = Shader.PropertyToID("StepWidth");
     private readonly int _IterationId = Shader.PropertyToID("Iteration");
     private readonly int _LightPositionId = Shader.PropertyToID("LightPosition");
-
-    // Light    
-    //private readonly int _lightPositionId = Shader.PropertyToID("_LightPosition");
+    private readonly int _LightsId = Shader.PropertyToID("Lights");
+    private readonly int _NumberOfLightsId = Shader.PropertyToID("NumberOfLights");
 
     public void Render(ScriptableRenderContext context, Camera camera, ComputeShader MotionVectorShader, ComputeShader ReprojectionShader,
-                       ComputeShader BlitShader, ComputeShader FilterShader)
+                       ComputeShader BlitShader, ComputeShader FilterShader, ComputeShader VarianceShader)
     {
         // Load shaders data
         _shader = Resources.Load<RayTracingShader>("RayTrace");
         _shaderGBuffer = Resources.Load<RayTracingShader>("GBuffer");
         _shaderAO = Resources.Load<RayTracingShader>("AO");
+        _shaderLocalLights = Resources.Load<RayTracingShader>("TraceLocalLights");
+        _shaderCubeLights = Resources.Load<RayTracingShader>("CubeLights");
 
         // Set camera variables
         SetupCamera(camera);
@@ -84,17 +90,20 @@ public class CameraRenderer : MonoBehaviour
 
         // Request buffers
         var albedoBuffer = RequireBuffer(camera, "albedoBuffer");
-        var globalLightBuffer = RequireBuffer(camera, "globalLightBuffer");
+        var directLightBuffer = RequireBuffer(camera, "globalLightBuffer");
         var motionVectorBuffer = RequireBuffer(camera, "motionVectorBuffer");
         var gBufferNormals = RequireBuffer(camera, "normalsBuffer");
         var gBufferWorldPositions = RequireBuffer(camera, "positionsBuffer");
         var reprojectedBuffer = RequireBuffer(camera, "reprojectedBuffer");
+        var historyBuffer = RequireBuffer(camera, "historyBuffer");
+        var prevHistoryBuffer = RequireBuffer(camera, "prevHistoryBuffer");
         var prevGlobalLightBuffer = RequireBuffer(camera, "prevGlobalLightBuffer");
         var prevGBufferNormals = RequireBuffer(camera, "prevGBufferNormals");
         var prevGBufferPosition = RequireBuffer(camera, "prevGBufferPosition");
         var blitBuffer = RequireBuffer(camera, "blitBuffer");
         var filterBuffer = RequireBuffer(camera, "filterBuffer");
         var aoBuffer = RequireBuffer(camera, "aoBuffer");
+        var localLightsBuffer = RequireBuffer(camera, "localLightsBuffer");
 
         // Ray tracing command
         var cmd = CommandBufferPool.Get("RayTracingCommand");
@@ -118,6 +127,10 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _outputTargetShaderId, gBufferNormals);
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _outputTarget2ShaderId, gBufferWorldPositions);
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _outputTarget3ShaderId, albedoBuffer);
+                    if (Settings.Instance.dayNightEfect)
+                        cmd.SetRayTracingVectorParam(_shaderGBuffer, _LightPositionId, SceneManager.Instance.GetSunPosition());
+                    else
+                        cmd.SetRayTracingVectorParam(_shaderGBuffer, _LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));
                     cmd.DispatchRays(_shaderGBuffer, "NormalsRaygenShader", (uint)gBufferWorldPositions.rt.width, (uint)gBufferWorldPositions.rt.height, 1, camera);
                 }
 
@@ -143,15 +156,16 @@ public class CameraRenderer : MonoBehaviour
             // output - globalLightBuffer
             if (Settings.Instance.rayTracingOn || Settings.Instance.reprojectionOn)
             {
-                using (new ProfilingScope(cmd, new ProfilingSampler("Global lighting")))
+                using (new ProfilingScope(cmd, new ProfilingSampler("Direct lighting")))
                 {
-                    cmd.SetRayTracingShaderPass(_shader, "RayTracing");
+                    cmd.SetRayTracingShaderPass(_shader, "DirectLighting");
                     cmd.SetRayTracingAccelerationStructure(_shader, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
-                    cmd.SetRayTracingTextureParam(_shader, _outputTargetShaderId, globalLightBuffer);
-                    cmd.SetRayTracingVectorParam(_shader, _outputTargetSizeShaderId, outputTargetSize);
+                    cmd.SetRayTracingTextureParam(_shader, _outputTargetShaderId, directLightBuffer);
                     cmd.SetRayTracingIntParam(_shader, _frameIndexShaderId, _frameIndex);
                     cmd.SetRayTracingIntParam(_shader, _frameCounterShaderId, _frameCounter);
                     cmd.SetRayTracingIntParam(_shader, _depthOfRecursionShaderId, Settings.Instance.depthOfRecursion);
+                    cmd.SetRayTracingTextureParam(_shader, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetRayTracingTextureParam(_shader, _PositionsId, gBufferWorldPositions);
                     if (Settings.Instance.dayNightEfect)
                         cmd.SetRayTracingVectorParam(_shader, _LightPositionId, SceneManager.Instance.GetSunPosition());
                     else
@@ -160,7 +174,46 @@ public class CameraRenderer : MonoBehaviour
                         cmd.SetGlobalVector(_LightPositionId, SceneManager.Instance.GetSunPosition());
                     else
                         cmd.SetGlobalVector(_LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));
-                    cmd.DispatchRays(_shader, "MyRaygenShader", (uint)globalLightBuffer.rt.width, (uint)globalLightBuffer.rt.height, 1, camera);
+                    cmd.DispatchRays(_shader, "DirectRaygenShader", (uint)directLightBuffer.rt.width, (uint)directLightBuffer.rt.height, 1, camera);
+                }
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+            }
+
+            // local lights pass
+            /*if (Settings.Instance.localLightsOn)
+            {
+                using (new ProfilingScope(cmd, new ProfilingSampler("Local lights evaluation")))
+                {
+                    cmd.SetRayTracingShaderPass(_shaderLocalLights, "LocalLights");
+                    cmd.SetRayTracingAccelerationStructure(_shaderLocalLights, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
+                    cmd.SetRayTracingTextureParam(_shaderLocalLights, _PositionsId, gBufferWorldPositions);
+                    cmd.SetRayTracingFloatParams(_shaderLocalLights, _LightsId, lightsPositions);
+                    cmd.SetRayTracingTextureParam(_shaderLocalLights, _outputTargetShaderId, localLightsBuffer);
+                    cmd.SetRayTracingIntParam(_shaderLocalLights, _frameIndexShaderId, _frameIndex);
+                    cmd.SetRayTracingIntParam(_shaderLocalLights, _frameCounterShaderId, _frameCounter);
+                    cmd.SetRayTracingIntParam(_shaderLocalLights, _NumberOfLightsId, 3);
+                    cmd.DispatchRays(_shaderLocalLights, "LocalLightsShader", (uint)localLightsBuffer.rt.width, (uint)localLightsBuffer.rt.height, 1, camera);
+                }
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+            }*/
+
+            // local lights pass
+            if (Settings.Instance.localLightsOn)
+            {
+                using (new ProfilingScope(cmd, new ProfilingSampler("Local lights evaluation")))
+                {
+                    cmd.SetRayTracingShaderPass(_shaderCubeLights, "CubeLights");
+                    cmd.SetRayTracingAccelerationStructure(_shaderCubeLights, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
+                    cmd.SetRayTracingTextureParam(_shaderCubeLights, _PositionsId, gBufferWorldPositions);
+                    cmd.SetRayTracingTextureParam(_shaderCubeLights, _GBufferNormalsId, gBufferNormals);
+                    cmd.SetRayTracingTextureParam(_shaderCubeLights, _outputTargetShaderId, localLightsBuffer);
+                    cmd.SetRayTracingIntParam(_shaderCubeLights, _frameIndexShaderId, _frameIndex);
+                    cmd.SetRayTracingIntParam(_shaderCubeLights, _frameCounterShaderId, _frameCounter);
+                    cmd.DispatchRays(_shaderCubeLights, "CubeLightsRaygenShader", (uint)localLightsBuffer.rt.width, (uint)localLightsBuffer.rt.height, 1, camera);
                 }
 
                 context.ExecuteCommandBuffer(cmd);
@@ -170,7 +223,7 @@ public class CameraRenderer : MonoBehaviour
             // ambient oclussion pass
             if (Settings.Instance.AO)
             {
-                using (new ProfilingSample(cmd, "AmbientOcclusion"))
+                using (new ProfilingScope(cmd, new ProfilingSampler("AmbientOcclusion")))
                 {
                     cmd.SetRayTracingShaderPass(_shaderAO, "AO");
                     cmd.SetRayTracingAccelerationStructure(_shaderAO, SceneManager.Instance.accelerationStructureShaderId, accelerationStructure);
@@ -179,7 +232,6 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetRayTracingTextureParam(_shaderAO, _outputTargetShaderId, aoBuffer);
                     cmd.SetRayTracingIntParam(_shaderAO, _frameIndexShaderId, _frameIndex);
                     cmd.SetRayTracingIntParam(_shaderAO, _frameCounterShaderId, _frameCounter);
-                    cmd.SetRayTracingVectorParam(_shaderAO, _outputTargetSizeShaderId, outputTargetSize);
                     cmd.DispatchRays(_shaderAO, "AORaygenShader", (uint)aoBuffer.rt.width, (uint)aoBuffer.rt.height, 1, camera);
                 }
 
@@ -192,19 +244,28 @@ public class CameraRenderer : MonoBehaviour
             {
                 using (new ProfilingScope(cmd, new ProfilingSampler("Reprojection")))
                 {
-                    _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
+                    if (Settings.Instance.reprojectWithIDs)
+                        _reprojectionKernelId = ReprojectionShader.FindKernel("ReprojectionWithIDs");
+                    else
+                        _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevGlobalLightBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _MotionVectorId, motionVectorBuffer);
-                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, globalLightBuffer);
+                    if (Settings.Instance.rayTracingOn)
+                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, directLightBuffer);
+                    else
+                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, localLightsBuffer);
                     //cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, aoBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _ReprojectedOutputId, reprojectedBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _GBufferNormalsId, gBufferNormals);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PositionsId, gBufferWorldPositions);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _HistoryBufferId, historyBuffer);
+                    cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevHistoryBufferId, prevHistoryBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevGBufferPositionId, prevGBufferPosition);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevGBufferNormalsId, prevGBufferNormals);
                     cmd.DispatchCompute(ReprojectionShader, _reprojectionKernelId, reprojectedBuffer.rt.width / 24, reprojectedBuffer.rt.height / 24, 1);
                     cmd.Blit(reprojectedBuffer, prevGlobalLightBuffer);
                     cmd.Blit(gBufferNormals, prevGBufferNormals);
+                    cmd.Blit(historyBuffer, prevHistoryBuffer);
                     // TODO toto tu nemusi mozna byt + kod co k tomu patri v shaderu
                     cmd.Blit(gBufferWorldPositions, prevGBufferPosition);
                 }
@@ -214,30 +275,52 @@ public class CameraRenderer : MonoBehaviour
             }
             else
             {
-                cmd.Blit(globalLightBuffer, reprojectedBuffer);
+                if (Settings.Instance.rayTracingOn)
+                    cmd.Blit(directLightBuffer, reprojectedBuffer);
+                else if (Settings.Instance.localLightsOn)
+                    cmd.Blit(localLightsBuffer, reprojectedBuffer);
+            }
+
+            // variance
+            if (Settings.Instance.varianceOn)
+            {
+                using (new ProfilingScope(cmd, new ProfilingSampler("Variance")))
+                {
+                    _varianceKernelId = VarianceShader.FindKernel("EstimateVariance");
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedBuffer);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _HistoryBufferId, historyBuffer);
+                    cmd.DispatchCompute(VarianceShader, _varianceKernelId, historyBuffer.rt.width / 24, historyBuffer.rt.height / 24, 1);
+                }
+
+                if (!Settings.Instance.filteringOn && !Settings.Instance.combineAlbedoAndShadows)
+                    cmd.Blit(historyBuffer, reprojectedBuffer);
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
             }
 
             // A Trous filtering
-            if (Settings.Instance.filtering)
+            if (Settings.Instance.filteringOn)
             {
                 using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
                 {
-                    int iterations = 7;
+                    int iterations = 6;
                     for (int i = 0; i < iterations; i++)
                     {
                         if (i < 3)
                         {
-                            _filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                            _filterKernelId = FilterShader.FindKernel("ATrous3x3");
                         }
                         else
                         {
                             _filterKernelId = FilterShader.FindKernel("ATrous5x5");
                         }
-                        //_filterKernelId = FilterShader.FindKernel("ATrous5x5");
+                        //_filterKernelId = FilterShader.FindKernel("ATrous3x3");
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedBuffer);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _PositionsId, gBufferWorldPositions);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsId, gBufferNormals);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _FilteredOutputId, filterBuffer);
+                        cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _HistoryBufferId, historyBuffer);
                         cmd.SetComputeFloatParam(FilterShader, _CameraXId, outputTargetSize.x);
                         cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
                         cmd.SetComputeFloatParam(FilterShader, _StepWidthId, /*iterations - i*/Mathf.Max(i, 1));
@@ -284,7 +367,9 @@ public class CameraRenderer : MonoBehaviour
                     cmd.Blit(albedoBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
             }*/
 
+            //cmd.Blit(localLightsBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
             cmd.Blit(reprojectedBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
+            //cmd.Blit(historyBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
             //cmd.Blit(albedoBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
 
             context.ExecuteCommandBuffer(cmd);

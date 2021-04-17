@@ -41,11 +41,11 @@ public struct ChunkJob : IJob
 
     public void Execute()
     {
-        for (int x = 0; x < 16; x++)
+        for (int x = 1; x < 17; x++)
         {
-            for (int z = 0; z < 16; z++)
+            for (int z = 1; z < 17; z++)
             {
-                for (int y = 0; y < 16; y++)
+                for (int y = 1; y < 17; y++)
                 {
                     Block block = chunkData.blocks[BlockUtils.GetBlockIndex(new int3(x, y, z))];
                     if (block.IsEmpty())
@@ -53,15 +53,28 @@ public struct ChunkJob : IJob
                         continue;
                     }
 
+                    // Loop all posible directions on cube and if
+                    // the next block in the direction is not empty,
+                    // save UVs to mesh data
                     for (int i = 0; i < 6; i++)
                     {
                         if (Check(BlockUtils.GetPositionInDirection((Directions)i, x, y, z)))
                         {
-                            CreateFace((Directions)i, new int3(x, y, z));
-                            meshData.uvs.Add(blockData.uvs[(int)block][0]);
-                            meshData.uvs.Add(blockData.uvs[(int)block][1]);
-                            meshData.uvs.Add(blockData.uvs[(int)block][2]);
-                            meshData.uvs.Add(blockData.uvs[(int)block][3]);
+                            CreateFace((Directions)i, new int3(x - 1, y - 1, z - 1));
+                            if (block == Block.dirt && i == (int)Directions.Up)
+                            {
+                                meshData.uvs.Add(blockData.uvs[(int)Block.grass][0]);
+                                meshData.uvs.Add(blockData.uvs[(int)Block.grass][1]);
+                                meshData.uvs.Add(blockData.uvs[(int)Block.grass][2]);
+                                meshData.uvs.Add(blockData.uvs[(int)Block.grass][3]);
+                            }
+                            else
+                            {
+                                meshData.uvs.Add(blockData.uvs[(int)block][0]);
+                                meshData.uvs.Add(blockData.uvs[(int)block][1]);
+                                meshData.uvs.Add(blockData.uvs[(int)block][2]);
+                                meshData.uvs.Add(blockData.uvs[(int)block][3]);
+                            }
                         }
                     }
                 }
@@ -85,20 +98,10 @@ public struct ChunkJob : IJob
         meshData.triangles.Add(vCount - 4);
         meshData.triangles.Add(vCount - 4 + 2);
         meshData.triangles.Add(vCount - 4 + 3);
-
-        /*meshData.uvs.Add(new Vector2(0, 0));
-        meshData.uvs.Add(new Vector2(0, 0.5f));
-        meshData.uvs.Add(new Vector2(0.5f, 0));
-        meshData.uvs.Add(new Vector2(0.5f, 0.5f));*/
     }
 
     private bool Check(int3 position)
     {
-        if (position.x >= 16 || position.x < 0 || position.z >= 16 || position.z < 0 || position.y < 0)
-            return true;
-        if (position.y >= 16)
-            return false;
-
         return chunkData.blocks[BlockUtils.GetBlockIndex(position)].IsEmpty();
     }
 

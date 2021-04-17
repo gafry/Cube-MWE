@@ -1,0 +1,76 @@
+﻿#pragma max_recursion_depth 11
+
+#include "./../Shaders/Common.hlsl"
+
+RWTexture2D<float4> _OutputTarget;
+int _FrameIndex;
+int _FrameCounter;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> Position;
+
+// A wrapper function that encapsulates shooting an ambient occlusion ray query
+float shootCubeLightsRay( float3 orig, float3 dir, float minT, float maxT )
+{
+	// Setup ambient occlusion ray and payload
+	RayPayloadAO rayPayloadAO = { 0.0f };  // Specified value is returned if we hit a surface
+	RayDesc rayDescriptor;
+	rayDescriptor.Origin    = orig;               // Where does our ray start?
+	rayDescriptor.Direction = dir;                // What direction does our ray go?
+	rayDescriptor.TMin      = minT;               // Min distance to detect an intersection
+	rayDescriptor.TMax      = maxT;               // Max distance to detect an intersection
+
+	// Trace our ray.  Ray stops after it's first definite hit; never execute closest hit shader
+	TraceRay(_AccelerationStructure,
+		RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, 0, 1, 0, rayDescriptor, rayPayloadAO);
+
+	// Copy our AO value out of the ray payload.
+	return rayPayloadAO.AOValue;
+}
+
+[shader("raygeneration")]
+void CubeLightsRaygenShader()
+{
+	const uint2 dispatchIdx = DispatchRaysIndex().xy;
+	const uint2 dispatchDim = DispatchRaysDimensions();
+
+	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
+
+	// Load the position and normal from our g-buffer
+	float4 worldNorm = GBufferNormals[dispatchIdx];
+	float4 worldPos = Position[dispatchIdx];
+
+	// default AO
+	float shadow = 0.0f;
+
+	// Our G-buffer stores 0 in worldPos.w for background pixels; only shoot an AO ray elsewhere
+	if (worldPos.w != 0.0f)
+	{
+		// Start accumulating from zero if we don't hit the background
+		shadow = 0.0f;
+
+		for (int i = 0; i < 3; i++)
+		{
+			// Sample cosine-weighted hemisphere around surface normal to pick a random ray direction
+			float3 worldDir = getCosHemisphereSample(randSeed, worldNorm.xyz);
+
+			// Shoot our ambient occlusion ray and update the value we'll output with the result
+			shadow += shootCubeLightsRay(worldPos.xyz/* + worldNorm * 0.001*/, worldDir, 3e-5f, 10);
+		}
+	}
+	shadow /= 3;
+	float4 color = float4(shadow, shadow, shadow, 1.0f);
+
+	if (_FrameIndex > 1)
+	{
+		float a = 1.0f / (float)_FrameIndex;
+		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
+	}
+
+	_OutputTarget[dispatchIdx] = color;
+}
+
+[shader("miss")]
+void MissShader(inout RayPayloadAO rayPayloadAO : SV_RayPayload)
+{
+	rayPayloadAO.AOValue = 0.0f;
+}

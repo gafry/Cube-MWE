@@ -14,5 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   MotionVectorShader: {fileID: 7200000, guid: 0a5ad9317f26d0f4ca96942b5e1cfceb, type: 3}
   ReprojectionShader: {fileID: 7200000, guid: 2812cd48743aed848991391a2728cf34, type: 3}
+  VarianceShader: {fileID: 7200000, guid: ea2550985fd401740abda072d2914161, type: 3}
   FilterShader: {fileID: 7200000, guid: 825bc1e29cbe82d46a2d9a423293088d, type: 3}
   BlitShader: {fileID: 7200000, guid: 96273a92b5d9562409d618752bca6b12, type: 3}

@@ -28,13 +28,6 @@ CBUFFER_END
 
 RaytracingAccelerationStructure _AccelerationStructure;
 
-struct RayPayload
-{
-  int remainingDepth;
-  float4 color;
-  uint randomSeed;
-};
-
 struct RayPayloadNormals
 {
 	float4 normalAndId;
@@ -109,7 +102,7 @@ float3 getPerpendicularVector(float3 u)
 }
 
 // Get a cosine-weighted random vector centered around a specified normal direction.
-float3 getCosHemisphereSample(inout uint randSeed, float3 hitNorm)
+inline float3 getCosHemisphereSample(inout uint randSeed, float3 hitNorm)
 {
 	// Get 2 random numbers to select our sample with
 	float2 randVal = float2(nextRand(randSeed), nextRand(randSeed));
@@ -201,26 +194,4 @@ inline void GenerateFocusCameraRayWithOffset(out float3 origin, out float3 direc
 	float3 world = _FocusCameraLeftBottomCorner + uv.x * _FocusCameraSize.x * _FocusCameraRight + uv.y * _FocusCameraSize.y * _FocusCameraUp;
 	origin = _WorldSpaceCameraPos.xyz + _FocusCameraHalfAperture * apertureOffset.x * _FocusCameraRight + _FocusCameraHalfAperture * apertureOffset.y * _FocusCameraUp;
 	direction = normalize(world.xyz - origin);
-}
-
-float ScatteringPDF(float3 inOrigin, float3 inDirection, float inT, float3 hitNormal, float3 scatteredDir)
-{
-	float cosine = dot(hitNormal, scatteredDir);
-	return max(0.0f, cosine / M_PI);
-}
-
-inline void GenerateONBFromN(inout ONB uvw, float3 n)
-{
-	uvw.w = n;
-	float3 a;
-	if (abs(uvw.w.x) > 0.0f)
-		a = float3(0.0f, 1.0f, 0.0f);
-	else
-		a = float3(1.0f, 0.0f, 0.0f);
-	uvw.v = normalize(cross(uvw.w, a));
-	uvw.u = cross(uvw.w, uvw.v);
-}
-
-inline float3 ONBLocal(inout ONB uvw, float3 a) {
-	return a.x * uvw.u + a.y * uvw.v + a.z * uvw.w;
 }
