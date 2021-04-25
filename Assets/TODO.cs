@@ -26,4 +26,6 @@ public class TODO : MonoBehaviour
     // u svgf je sample code, zkusit stáhnout
     
     // predelat settings do pipeline
+    
+    // zrusit reprojekci kdyz je moc daleko objekt
 }
