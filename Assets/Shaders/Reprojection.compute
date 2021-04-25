@@ -1,6 +1,5 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel Reprojection
-#pragma kernel ReprojectionWithIDs
 
 // Group size
 #define size_x 24
@@ -18,6 +17,12 @@ Texture2D<float4> PrevGBufferPosition;
 RWTexture2D<float4> HistoryBuffer;
 Texture2D<float4> PrevHistoryBuffer;
 RWTexture2D<float4> ReprojectedOutput;
+float CameraX;
+float CameraY;
+bool WithID;
+float StartCoef;
+float AdaptCoef;
+float MinCoef;
 
 // Declare one thread for each texel of the current block size.
 [numthreads(size_x, size_y, 1)]
@@ -26,18 +31,16 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     float4 motionVector = MotionVectorOutput.Load(dispatchThreadId);
     float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
 
-    // if primary ray miss, MotionVectorOutput.w is set to 0 -> there are no data to reproject
-    if (motionVector.w < 0.01)
+    // calculate last frame position based on motion vector, if the position is outside of image or if primary ray miss, skip reprojection
+    int3 lastFramePosition = int3(dispatchThreadId.x - motionVector.x, dispatchThreadId.y - motionVector.y, 0);
+    if (lastFramePosition.x < 0 || lastFramePosition.x >= CameraX || lastFramePosition.y < 0 || lastFramePosition.y >= CameraY || motionVector.w == 0.0f)
     {
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(0, 0, 1, 1); //currentFrameColor;
         ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
         HistoryBuffer[dispatchThreadId.xy] = float4(0, 0, 0, 1);
         return;
     }
-
-    // calculate last frame position based on motion vector and get last frame color
-    float4 currentNormalsandIds = GBufferNormals.Load(dispatchThreadId);
-    int3 lastFramePosition = int3(max(0, dispatchThreadId.x - motionVector.x), max(0, dispatchThreadId.y - motionVector.y), 0);
+    
+    float4 currentNormalsandIds = GBufferNormals.Load(dispatchThreadId);    
     float4 lastFrameColor = LastFrame.Load(lastFramePosition);
     float4 currentWorldPosition = Position.Load(dispatchThreadId);
     float4 lastFrameWorldPosition = PrevGBufferPosition.Load(lastFramePosition);
@@ -50,64 +53,19 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     // check normals and object IDs (object IDs are saved in currentNormalsandIds.w)
     float4 prevNormalsAndIds = PrevGBufferNormals.Load(lastFramePosition);
     float4 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
-    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.5)
+    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.1f && ((currentNormalsandIds.w - prevNormalsAndIds.w < 0.5f && WithID) || !WithID))
     {
         float4 prevHistory = PrevHistoryBuffer[lastFramePosition.xy];
-        float coef = 0.8f;// +(prevHistory * 0.01f);
+        float coef = AdaptCoef;// max(MinCoef, 0.8f - (max(0, currentWorldPosition.w - StartCoef) * AdaptCoef));
         float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;
         ReprojectedOutput[dispatchThreadId.xy] = finalColor;
         //ReprojectedOutput[dispatchThreadId.xy] = float4(1, 0, 0, 1);
-        float diff = abs(finalColor.x - lastFrameColor.x);
-        HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), prevHistory.y, 1);
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), 1);
-    }
-    else
-    {
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(1, 0, 0, 1); //currentFrameColor;
-        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
-        HistoryBuffer[dispatchThreadId.xy] = float4(0, 0, 0, 1);
-    }
-}
-
-[numthreads(size_x, size_y, 1)]
-void ReprojectionWithIDs(uint3 dispatchThreadId : SV_DispatchThreadID)
-{
-    float4 motionVector = MotionVectorOutput.Load(dispatchThreadId);
-    float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
-
-    // if primary ray miss, MotionVectorOutput.w is set to 0 -> there are no data to reproject
-    if (motionVector.w < 0.01)
-    {
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(0, 0, 1, 1); //currentFrameColor;
-        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
-        HistoryBuffer[dispatchThreadId.xy] = float4(0, 0, 0, 1);
-        return;
-    }
-
-    // calculate last frame position based on motion vector and get last frame color
-    float4 currentNormalsandIds = GBufferNormals.Load(dispatchThreadId);
-    int3 lastFramePosition = int3(max(0, dispatchThreadId.x - motionVector.x), max(0, dispatchThreadId.y - motionVector.y), 0);
-    float4 lastFrameColor = LastFrame.Load(lastFramePosition);
-    float4 currentWorldPosition = Position.Load(dispatchThreadId);
-    float4 lastFrameWorldPosition = PrevGBufferPosition.Load(lastFramePosition);
-    float2 heading;
-    heading.x = currentWorldPosition.x - lastFrameWorldPosition.x;
-    heading.y = currentWorldPosition.y - lastFrameWorldPosition.y;
-    float distanceSquared = heading.x * heading.x + heading.y * heading.y;
-    float distance = sqrt(distanceSquared);
-
-    // check normals and object IDs (object IDs are saved in currentNormalsandIds.w)
-    float4 prevNormalsAndIds = PrevGBufferNormals.Load(lastFramePosition);
-    float4 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
-    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && currentNormalsandIds.w == prevNormalsAndIds.w && distance < 0.1)
-    {
-        float4 prevHistory = PrevHistoryBuffer[lastFramePosition.xy];
-        float coef = 0.8f;// +(prevHistory * 0.01f);
-        float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;
-        ReprojectedOutput[dispatchThreadId.xy] = finalColor;
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(1, 0, 0, 1);
-        float diff = abs(finalColor.x - lastFrameColor.x);
-        HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), prevHistory.y, 1);
+        /*float diff = abs(finalColor.x - lastFrameColor.x);
+        //HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), prevHistory.y, 1);
+        if (diff < 0.08f && (currentFrameColor.x < 0.105f || currentFrameColor.x > 0.59))
+            HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, prevHistory.y + 1, diff, 1);
+        else
+            HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, 0, diff, 1);*/
         //ReprojectedOutput[dispatchThreadId.xy] = float4(((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), 1);
     }
     else

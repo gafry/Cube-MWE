@@ -6,6 +6,7 @@ RWTexture2D<float4> _OutputTarget;
 int _NumberOfSamples = 1;
 int _FrameIndex;
 int _FrameCounter;
+float AOCoef;
 Texture2D<float4> GBufferNormals;
 Texture2D<float4> Position;
 
@@ -42,7 +43,7 @@ void AORaygenShader()
 	float4 worldPos = Position[dispatchIdx];
 
 	// number of rays
-	int numberOfRays = 1;
+	int numberOfRays = 4;
 
 	// default AO
 	float ambientOcclusion = 1.0f;
@@ -53,14 +54,21 @@ void AORaygenShader()
 		// Start accumulating from zero if we don't hit the background
 		ambientOcclusion = 0.0f;
 
+		float rayLength = 0.15f * AOCoef;
+
 		for (int i = 0; i < numberOfRays; i++)
 		{
 			// Sample cosine-weighted hemisphere around surface normal to pick a random ray direction
 			float3 worldDir = getCosHemisphereSample(randSeed, worldNorm.xyz);
 
 			// Shoot our ambient occlusion ray and update the value we'll output with the result
-			ambientOcclusion += shootAmbientOcclusionRay(worldPos.xyz, worldDir, 3e-5f, 0.4f);
+			ambientOcclusion += shootAmbientOcclusionRay(worldPos.xyz, worldDir, 3e-5f, rayLength);
 		}
+	} 
+	else
+	{
+		_OutputTarget[dispatchIdx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+		return;
 	}
 
 	float ResultAO = ambientOcclusion / float(numberOfRays);

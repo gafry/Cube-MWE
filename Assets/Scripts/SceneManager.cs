@@ -1,5 +1,4 @@
 ﻿using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -31,6 +30,7 @@ public class SceneManager : MonoBehaviour
     private Vector3Int _chunkWherePlayerStood;
 
     private NativeList<JobHandle> _jobHandles;
+    private bool _jobHandlesAlocated;
     private int _maxJobsAtOnce;
     private Phase phase = Phase.Resting;
     private List<Chunk> _toGenerate;
@@ -132,7 +132,14 @@ public class SceneManager : MonoBehaviour
         InitRaytracingAccelerationStructure();
 
         if (Settings.Instance.loadWorld)
+        {
             _jobHandles = new NativeList<JobHandle>(Allocator.Persistent);
+            _jobHandlesAlocated = true;
+        }
+        else
+        {
+            _jobHandlesAlocated = false;
+        }
     }
 
     // Update is called once per frame
@@ -158,8 +165,10 @@ public class SceneManager : MonoBehaviour
             runningJobs = 0;
             JobHandle.CompleteAll(_jobHandles);
         }
-        _jobHandles.Dispose();
+        if (_jobHandlesAlocated)
+            _jobHandles.Dispose();
         _jobHandles = new NativeList<JobHandle>(Allocator.Persistent);
+        _jobHandlesAlocated = true;
 
         Vector3Int chunkWherePlayerStands = ChunkWherePlayerStands();
         if (!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) && phase == Phase.Resting)
@@ -357,7 +366,8 @@ public class SceneManager : MonoBehaviour
         BlockData.UVs.Dispose();
 
         centroids.Dispose();
-        _jobHandles.Dispose();
+        if (_jobHandlesAlocated)
+            _jobHandles.Dispose();
     }
 
     public RayTracingAccelerationStructure RequestAccelerationStructure()
@@ -368,6 +378,11 @@ public class SceneManager : MonoBehaviour
     public Vector3 GetSunPosition()
     {
         return sun.transform.position;
+    }
+
+    public Vector3 GetPlayerPosition()
+    {
+        return player.transform.position;
     }
 
     private void InitRaytracingAccelerationStructure()

@@ -23,14 +23,18 @@ inline float2 ClipSpaceToTexturePosition(in float4 clipSpacePosition)
 [numthreads(size_x, size_y, 1)]
 void MotionVector(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    float4 position = Position.Load(dispatchThreadId);
+
     // Calculate screen space position of the hit in the previous frame
-    float4 prevFrameClipSpacePosition = mul(PrevViewProj, float4(Position.Load(dispatchThreadId).xyz, 1));
+    float4 prevFrameClipSpacePosition = mul(PrevViewProj, float4(position.xyz, 1));
     float2 prevFrameScreenPositionNormalized = ClipSpaceToTexturePosition(prevFrameClipSpacePosition);
     float2 prevFrameScreenPosition = prevFrameScreenPositionNormalized * float2(CameraX, CameraY);
 
     float2 curFrameScreenPosition = dispatchThreadId.xy;   
 
     // if primary ray missed, set all components to 0
-    float miss = Position.Load(dispatchThreadId).w;
-    MotionVectorOutput[dispatchThreadId.xy] = float4((curFrameScreenPosition.x - prevFrameScreenPosition.x) * miss, (curFrameScreenPosition.y - prevFrameScreenPosition.y) * miss, 0, miss);
+    if (position.w == 0.0f)
+        MotionVectorOutput[dispatchThreadId.xy] = float4(0, 0, 0, 0);
+    else
+        MotionVectorOutput[dispatchThreadId.xy] = float4(curFrameScreenPosition.x - prevFrameScreenPosition.x, curFrameScreenPosition.y - prevFrameScreenPosition.y, 0, 1.0f);
 }

@@ -109,10 +109,12 @@
                 float sunSize = 100.0f;
                 float secondary = 0.0f;
 
+                float lightIntensity = 2.0f;
+
                 if (rayPayload.remainingDepth > 0)
                     secondary = shootDirectLightRay(worldPos, worldDir, 1e-5f, _CameraFarDistance, rayPayload.remainingDepth, rayPayload.randomSeed);
                 else
-                    secondary = 2.0f;
+                    secondary = 0.f;
 
                 if (LightPosition.y + sunSize > 0)
                 {
@@ -121,21 +123,22 @@
                     dirToLight3 = normalize(sampleOnHemisphere - worldPos);
                     float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
                     float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
-                    float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+                    //float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+                    float nDotL = saturate(dot(worldNorm, dirToLight3));
 
                     // Shoot shadow ray with our encapsulated shadow tracing function
                     float shadow = shootShadowRay(worldPos, dirToLight3, 1.0e-4f, distToLight3);
-                    primary = nDotL * max(0.3f, shadow);
+                    primary = nDotL * max(0.f, shadow) * lightIntensity;
                 }
                 else
                 {
-                    primary = 0.3f;
+                    primary = 0.f;
                 }
 
-                float shadow = primary * 0.5f * secondary;
-                color = float4(shadow, shadow, shadow, 1);
+                float shadow = min(1.f, primary + secondary);
+                //color = float4(shadow, shadow, shadow, 1);
 
-                rayPayload.color = color;
+                rayPayload.color = shadow;
             }
 
             ENDHLSL
@@ -264,10 +267,7 @@
             float4 _Color;
             CBUFFER_END
 
-            Texture2D _BaseColorMap;            
-            Texture2D _BaseColorMap_2;
-            Texture2D _BaseColorMap_8;
-            Texture2D _BaseColorMap_32;
+            Texture2D _BaseColorMap;
             SamplerState sampler_BaseColorMap;
 
             [shader("closesthit")]
@@ -297,14 +297,11 @@
 
                 float instanceID = InstanceID();
                 rayPayload.normalAndId = float4(normalWS, instanceID);
-                rayPayload.worldPosition = float4(positionWS, 1.0f);
-                //rayPayload.albedo = _Color.xyz;
+                rayPayload.worldPosition = float4(positionWS, t);
 
                 float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
                 float4 textureColor;
-                if (t < 10)
-                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
-                else if (t < 20)
+                if (t < 20)
                 {
                     texCoord0.x = min(0.5f + (texCoord0.x / 2), 1.0f);
                     texCoord0.y = texCoord0.y / 2;
@@ -322,7 +319,7 @@
                     texCoord0.y = texCoord0.y / 8;
                     textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
                 }
-                else
+                else if (t > 10)
                 {
                     texCoord0.x = min(0.9375f + (texCoord0.x / 16), 1.0f);
                     texCoord0.y = texCoord0.y / 16;

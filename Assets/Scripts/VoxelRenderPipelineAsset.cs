@@ -2,8 +2,8 @@
 using UnityEngine.Rendering;
 
 // The CreateAssetMenu attribute lets you create instances of this class in the Unity Editor.
-[CreateAssetMenu(menuName = "Rendering/ExampleRenderPipelineAsset")]
-public class ExampleRenderPipelineAsset : RenderPipelineAsset
+[CreateAssetMenu(menuName = "Rendering/VoxelRenderPipelineAsset")]
+public class VoxelRenderPipelineAsset : RenderPipelineAsset
 {
     [SerializeField]
     public ComputeShader MotionVectorShader;
@@ -26,6 +26,6 @@ public class ExampleRenderPipelineAsset : RenderPipelineAsset
     {
         // Instantiate the Render Pipeline that this custom SRP uses for rendering, and pass a reference to this Render Pipeline Asset.
         // The Render Pipeline Instance can then access the configuration data defined above.
-        return new ExampleRenderPipelineInstance(this);
+        return new VoxelRenderPipelineInstance(this);
     }
 }

@@ -11,6 +11,7 @@ int _DepthOfRecursion;
 float3 LightPosition;
 Texture2D<float4> GBufferNormals;
 Texture2D<float4> Position;
+int SoftShadowsOn;
 
 inline float3 BackgroundColor(float3 origin, float3 direction)
 {
@@ -83,7 +84,7 @@ void DirectRaygenShader()
 	// Load the position and normal from our g-buffer
 	float4 worldPos = Position[dispatchIdx];
 	
-	if (worldPos.w < 0.2f)
+	if (worldPos.w == 0.0f)
 	{
 		_OutputTarget[dispatchIdx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
 		return;
@@ -101,25 +102,39 @@ void DirectRaygenShader()
 	float sunSize = 100.0f;
 	float secondary = 0.0f;
 
-	for (int i = 0; i < 3; i++)
+	float numOfIters = 4.0f;
+	float lightIntensity = 4.0f;
+	/*if (worldPos.w > 40)
+		numOfIters = 3;
+	else if (worldPos.w > 80)
+		numOfIters = 2;
+	else if (worldPos.w > 120)
+		numOfIters = 1;*/
+
+	for (int i = 0; i < (int)numOfIters; i++)
 	{
-		/*if (_DepthOfRecursion > 0)
+		if (_DepthOfRecursion > 0)
 			secondary = shootDirectLightRay(worldPos.xyz, worldDir, 1e-5f, _CameraFarDistance, _DepthOfRecursion, randSeed);
 		else
-			secondary = 2.0f;*/
+			secondary = 0.f;
 
 		if (LightPosition.y + sunSize > 0)
 		{
-			float3 dirToLight3 = normalize(LightPosition - worldPos);
-			float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(randSeed, dirToLight3);
-			dirToLight3 = normalize(sampleOnHemisphere - worldPos);
-			float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
-			float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
-			float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+			float distToLight;
+			float3 dirToLight = normalize(LightPosition - worldPos);
+			if (SoftShadowsOn > 0)
+			{
+				float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(randSeed, dirToLight);
+				dirToLight = normalize(sampleOnHemisphere - worldPos);
+				distToLight = length(sampleOnHemisphere - worldPos) - 0.2f;
+			}
+			else
+				distToLight = length(LightPosition - worldPos) - 0.2f;
+			float nDotL = max(0.f, dot(worldNorm, dirToLight));
 
 			// Shoot shadow ray with our encapsulated shadow tracing function
-			float shadow = shootShadowRay(worldPos, dirToLight3, 1.0e-4f, distToLight3);
-			primary += nDotL * max(0.1f, shadow);
+			float shadow = shootShadowRay(worldPos, dirToLight, 1.0e-4f, distToLight);
+			primary += nDotL * max(0.1f, shadow) + secondary;
 		}
 		else
 		{
@@ -127,16 +142,14 @@ void DirectRaygenShader()
 			float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(randSeed, dirToLight3);
 			dirToLight3 = normalize(sampleOnHemisphere - worldPos);
 			float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
-			float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
 			float nDotL = max(0.f, dot(worldNorm, dirToLight3));
 
-			// Shoot shadow ray with our encapsulated shadow tracing function
 			float shadow = 0.0f;
-			primary += nDotL * max(0.1f, shadow);
+			primary += 0.1f;//nDotL * max(0.1f, shadow);
 		}
 	}
 
-	float shadow = max(0.1f, (primary / 3));// *0.5f * secondary;
+	float shadow = max(0.f, (primary / numOfIters));// *0.5f * secondary;
 	color = float4(shadow, shadow, shadow, 1);
 
 	if (_FrameIndex > 1)

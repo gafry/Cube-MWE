@@ -1,12 +1,13 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel BlitIt
+#pragma kernel BlitAOWithDirect
 
 // Group size
 #define size_x 24
 #define size_y 24
 
 #define M_PI (3.14159265358979323846264338327950288)
-#define lightIntensity (6.0)
+#define lightIntensity (2.0)
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -22,5 +23,16 @@ void BlitIt(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     //BlitOutput[dispatchThreadId.xy] = pow(ColorInput.Load(texturelocation) * ShadowInput.Load(texturelocation), 2.2f);
     float4 color = ColorInput.Load(texturelocation);
-    BlitOutput[dispatchThreadId.xy] = (color / M_PI) * lightIntensity * ShadowInput.Load(texturelocation);
+    float4 shadow = ShadowInput.Load(texturelocation);
+    //BlitOutput[dispatchThreadId.xy] = (color / M_PI) * lightIntensity * shadow;
+    BlitOutput[dispatchThreadId.xy] = color * lightIntensity * shadow;
+    //BlitOutput[dispatchThreadId.xy] = color * shadow;
+}
+
+[numthreads(size_x, size_y, 1)]
+void BlitAOWithDirect(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    int3 texturelocation = dispatchThreadId;
+
+    BlitOutput[dispatchThreadId.xy] = min(ShadowInput.Load(texturelocation), ColorInput.Load(texturelocation));
 }

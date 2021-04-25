@@ -9,6 +9,9 @@
 // with cs.SetTexture
 Texture2D<float4> ShadowInput;
 RWTexture2D<float4> HistoryBuffer;
+float CameraX;
+float CameraY;
+float StartCoef;
 
 static const float gaussianFilter5x5[5][5] =
 {
@@ -53,33 +56,82 @@ static const float offset[25][2] =
 };
 
 // Declare one thread for each texel of the current block size.
-[numthreads(size_x, size_y, 1)]
+/*[numthreads(size_x, size_y, 1)]
 void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     float4 history = HistoryBuffer.Load(dispatchThreadId.xy);
     float sum = 0.0f;
+    float div = 0.0f;
 
-    if (history.y < 0.5f && history.z < 0.15f)
+    if (history.x > 16 && history.y > 8 && history.z < 0.03f)
     {
         HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 2);
     }
     else
     {
+        // 7x7 Gaussian Filter
         for (int x = -3; x < 4; x++)
         {
             for (int y = -3; y < 4; y++)
             {
                 int3 uv = dispatchThreadId + int3(x, y, 0);
 
+                if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+                {
+                    continue;
+                }
+
                 float shadowTmp = ShadowInput.Load(uv).x;
-                sum += shadowTmp * (1.0f / 49.0f);
+                sum += shadowTmp;
+                div++;
             }
         }
 
-        float dif = ShadowInput.Load(dispatchThreadId).x - sum;
-        if (dif < 0.01f && history.x >= 3)
+        float dif = abs(ShadowInput.Load(dispatchThreadId).x - (sum / div));
+        if (dif < 0.05f && history.y > 4 && history.x > 8)
             HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 1);
         else
             HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 0);
     }
+}*/
+
+[numthreads(size_x, size_y, 1)]
+void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 history = HistoryBuffer.Load(dispatchThreadId.xy);
+    float sum = 0.0f;
+    float sum_2 = 0.0f;
+    uint n = 0;
+
+    int i = 3;
+
+    // ixi sample
+    for (int x = -i; x <= i; x++)
+    {
+        for (int y = -i; y <= i; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x, y, 0);
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+            {
+                continue;
+            }
+
+            n++;
+            float y_i = ShadowInput.Load(uv).x;
+            sum_2 += (y_i * y_i);
+            sum += y_i;
+        }
+    }
+
+    float invN = 1.0f / max(1, n);
+    float mean = sum * invN;
+    float besselCorrection = n / max(1, n - 1);
+
+    float variance = max(0, (invN * sum - mean * mean) * besselCorrection);
+
+    /*if (variance > 0.25f)
+        HistoryBuffer[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    else*/
+        HistoryBuffer[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
 }

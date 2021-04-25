@@ -5,6 +5,8 @@
 RWTexture2D<float4> _OutputTarget;
 RWTexture2D<float4> _OutputTarget2;
 RWTexture2D<float4> _OutputTarget3;
+Texture2D<float4> Materials;
+SamplerState sampler_Materials;
 float3 LightPosition;
 
 inline float3 BackgroundColor(float3 origin, float3 direction)
@@ -56,16 +58,56 @@ void NormalsRaygenShader()
 	_OutputTarget3[dispatchIdx] = float4(rayPayload.albedo, 1.0f);
 }
 
+[shader("anyhit")]
+void AnyHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+{
+	// Fetch the indices of the currentr triangle
+	/*uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+
+	// Fetch the 3 vertices
+	IntersectionVertex v0, v1, v2;
+	FetchIntersectionVertex(triangleIndices.x, v0);
+	FetchIntersectionVertex(triangleIndices.y, v1);
+	FetchIntersectionVertex(triangleIndices.z, v2);
+
+	// Compute the full barycentric coordinates
+	float3 barycentricCoordinates = float3(1.0 - attributeData.barycentrics.x - attributeData.barycentrics.y, attributeData.barycentrics.x, attributeData.barycentrics.y);
+	float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
+	float t = RayTCurrent();
+
+	float alpha;
+	if (t < 20)
+	{
+		texCoord0.x = min(0.5f + (texCoord0.x / 2), 1.0f);
+		texCoord0.y = texCoord0.y / 2;
+	}
+	else if (t < 30)
+	{
+		texCoord0.x = min(0.75f + (texCoord0.x / 4), 1.0f);
+		texCoord0.y = texCoord0.y / 4;
+	}
+	else if (t < 100)
+	{
+		texCoord0.x = min(0.875f + (texCoord0.x / 8), 1.0f);
+		texCoord0.y = texCoord0.y / 8;
+	}
+	else if (t > 10)
+	{
+		texCoord0.x = min(0.9375f + (texCoord0.x / 16), 1.0f);
+		texCoord0.y = texCoord0.y / 16;
+	}
+
+	alpha = Materials.SampleLevel(sampler_Materials, texCoord0, 0).w;
+	if (alpha == 0)
+		IgnoreHit();
+	rayPayload.albedo = float3(alpha, alpha, alpha);*/
+	AcceptHitAndEndSearch();
+}
+
 [shader("miss")]
 void MissShader(inout RayPayloadNormals rayPayload : SV_RayPayload)
 {
 	float3 origin = WorldRayOrigin();
 	float3 direction = WorldRayDirection();
 	rayPayload.albedo = BackgroundColor(origin, direction);
-}
-
-[shader("anyhit")]
-void AnyHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-{
-	AcceptHitAndEndSearch();
 }
