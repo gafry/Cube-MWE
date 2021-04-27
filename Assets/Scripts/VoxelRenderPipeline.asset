@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 10c2bd42124c2aa4fad148902914eae9, type: 3}
   m_Name: VoxelRenderPipeline
   m_EditorClassIdentifier: 
-  MotionVectorShader: {fileID: 0}
-  ReprojectionShader: {fileID: 0}
-  VarianceShader: {fileID: 0}
-  FilterShader: {fileID: 0}
-  BlitShader: {fileID: 0}
+  MotionVectorShader: {fileID: 7200000, guid: 0a5ad9317f26d0f4ca96942b5e1cfceb, type: 3}
+  ReprojectionShader: {fileID: 7200000, guid: 2812cd48743aed848991391a2728cf34, type: 3}
+  VarianceShader: {fileID: 7200000, guid: ea2550985fd401740abda072d2914161, type: 3}
+  FilterShader: {fileID: 7200000, guid: 825bc1e29cbe82d46a2d9a423293088d, type: 3}
+  BlitShader: {fileID: 7200000, guid: 96273a92b5d9562409d618752bca6b12, type: 3}

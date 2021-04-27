@@ -215,7 +215,7 @@ public class CameraRenderer : MonoBehaviour
             }*/
 
             // local lights pass
-            if (Settings.Instance.localLightsOn)
+            /*if (Settings.Instance.localLightsOn)
             {
                 using (new ProfilingScope(cmd, new ProfilingSampler("Local lights evaluation")))
                 {
@@ -231,7 +231,7 @@ public class CameraRenderer : MonoBehaviour
 
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
-            }
+            }*/
 
             // ambient oclussion pass
             if (Settings.Instance.AO > 0)
@@ -255,7 +255,7 @@ public class CameraRenderer : MonoBehaviour
 
             if (Settings.Instance.AO > 0 && Settings.Instance.rayTracingOn)
             {
-                using (new ProfilingScope(cmd, new ProfilingSampler("Combine shadows and albedo")))
+                using (new ProfilingScope(cmd, new ProfilingSampler("Combine shadows and AO")))
                 {
                     _blitKernelId = BlitShader.FindKernel("BlitAOWithDirect");
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ShadowInputId, aoBuffer);
@@ -330,6 +330,12 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetComputeFloatParam(VarianceShader, _CameraYId, outputTargetSize.y);
                     cmd.SetComputeFloatParam(VarianceShader, _StartCoefId, Settings.Instance.StartCoef);
                     cmd.DispatchCompute(VarianceShader, _varianceKernelId, historyBuffer.rt.width / 24, historyBuffer.rt.height / 24, 1);
+
+                    /*_varianceKernelId = VarianceShader.FindKernel("GaussianVariance");
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _HistoryBufferId, historyBuffer);
+                    cmd.SetComputeFloatParam(VarianceShader, _CameraXId, outputTargetSize.x);
+                    cmd.SetComputeFloatParam(VarianceShader, _CameraYId, outputTargetSize.y);
+                    cmd.DispatchCompute(VarianceShader, _varianceKernelId, historyBuffer.rt.width / 24, historyBuffer.rt.height / 24, 1);*/
                 }
 
                 if (!Settings.Instance.filteringOn && !Settings.Instance.combineAlbedoAndShadows)
@@ -357,6 +363,7 @@ public class CameraRenderer : MonoBehaviour
                         cmd.SetComputeFloatParam(FilterShader, _CameraYId, outputTargetSize.y);
                         cmd.SetComputeFloatParam(FilterShader, _StepWidthId, /*iterations - i*/Mathf.Max(i, 1));
                         cmd.SetComputeFloatParam(FilterShader, _IterationId, i);
+                        cmd.SetComputeFloatParam(FilterShader, _AdaptCoefId, Settings.Instance.AdaptCoef);
                         if (Settings.Instance.varianceOn)
                             cmd.SetComputeIntParam(FilterShader, _VarianceId, 1);
                         else

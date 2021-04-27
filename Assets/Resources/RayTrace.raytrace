@@ -33,48 +33,6 @@ inline float3 BackgroundColor(float3 origin, float3 direction)
 	//return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
 }
 
-/*[shader("raygeneration")]
-void MyRaygenShader()
-{
-	const uint2 dispatchIdx = DispatchRaysIndex().xy;
-	const uint2 dispatchDim = DispatchRaysDimensions();
-
-	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
-
-	float4 color = (0,0,0,0);
-
-	float3 origin;
-	float3 direction;
-	float2 offset = float2(nextRand(randSeed), nextRand(randSeed));
-	GenerateCameraRayWithOffset(origin, direction, offset);
-
-	RayDesc rayDescriptor;
-	rayDescriptor.Origin = origin;
-	rayDescriptor.Direction = direction;
-	rayDescriptor.TMin = 1e-5f;
-	rayDescriptor.TMax = _CameraFarDistance;
-
-	// Create and init the ray payload
-	RayPayload rayPayload;
-
-	rayPayload.randomSeed = randSeed;
-	rayPayload.remainingDepth = _DepthOfRecursion - 1;
-	rayPayload.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-	TraceRay(_AccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0x01, 0, 1, 0, rayDescriptor, rayPayload);
-
-	color = rayPayload.color;
-	color = float4(sqrt(color.r), sqrt(color.g), sqrt(color.b), color.a);
-
-	if (_FrameIndex > 1)
-	{
-		float a = 1.0f / (float)_FrameIndex;
-		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
-	}
-
-	_OutputTarget[dispatchIdx] = color;
-}*/
-
 [shader("raygeneration")]
 void DirectRaygenShader()
 {

@@ -1,5 +1,6 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel EstimateVariance
+#pragma kernel GaussianVariance
 
 // Group size
 #define size_x 24
@@ -22,78 +23,12 @@ static const float gaussianFilter5x5[5][5] =
     { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 }
 };
 
-static const float offset[25][2] =
+static const float gaussianFilter[3][3] =
 {
-    { -2, -2 },
-    { -1, -2 },
-    {  0, -2 },
-    {  1, -2 },
-    {  2, -2 },
-
-    { -2, -1 },
-    { -1, -1 },
-    {  0, -1 },
-    {  1, -1 },
-    {  2, -1 },
-
-    { -2,  0 },
-    { -1,  0 },
-    {  0,  0 },
-    {  1,  0 },
-    {  2,  0 },
-
-    { -2,  1 },
-    { -1,  1 },
-    {  0,  1 },
-    {  1,  1 },
-    {  2,  1 },
-
-    { -2,  2 },
-    { -1,  2 },
-    {  0,  2 },
-    {  1,  2 },
-    {  2,  2 }
+    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 },
+    { 1.0 / 8.0,  1.0 / 4.0, 1.0 / 8.0  },
+    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 }
 };
-
-// Declare one thread for each texel of the current block size.
-/*[numthreads(size_x, size_y, 1)]
-void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
-{
-    float4 history = HistoryBuffer.Load(dispatchThreadId.xy);
-    float sum = 0.0f;
-    float div = 0.0f;
-
-    if (history.x > 16 && history.y > 8 && history.z < 0.03f)
-    {
-        HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 2);
-    }
-    else
-    {
-        // 7x7 Gaussian Filter
-        for (int x = -3; x < 4; x++)
-        {
-            for (int y = -3; y < 4; y++)
-            {
-                int3 uv = dispatchThreadId + int3(x, y, 0);
-
-                if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
-                {
-                    continue;
-                }
-
-                float shadowTmp = ShadowInput.Load(uv).x;
-                sum += shadowTmp;
-                div++;
-            }
-        }
-
-        float dif = abs(ShadowInput.Load(dispatchThreadId).x - (sum / div));
-        if (dif < 0.05f && history.y > 4 && history.x > 8)
-            HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 1);
-        else
-            HistoryBuffer[dispatchThreadId.xy] = float4(history.x, history.y, history.z, 0);
-    }
-}*/
 
 [numthreads(size_x, size_y, 1)]
 void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -134,4 +69,26 @@ void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
         HistoryBuffer[dispatchThreadId.xy] = float4(1, 0, 0, 1);
     else*/
         HistoryBuffer[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
+}
+
+[numthreads(size_x, size_y, 1)]
+void GaussianVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 historyValue = HistoryBuffer.Load(dispatchThreadId);
+    float sum = 0.0f;
+    float weight = 0.0f;
+    for (int x = 0; x < 5; x++)
+    {
+        for (int y = 0; y < 5; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x - 3, y - 3, 0);
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+                sum += historyValue.x * gaussianFilter5x5[x][y];
+            else
+                sum += HistoryBuffer.Load(uv).x * gaussianFilter5x5[x][y];
+        }
+    }
+
+    HistoryBuffer[dispatchThreadId.xy] = float4(sum, sum, sum, 1);
 }
