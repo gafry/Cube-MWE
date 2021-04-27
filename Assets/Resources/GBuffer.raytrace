@@ -9,26 +9,6 @@ Texture2D<float4> Materials;
 SamplerState sampler_Materials;
 float3 LightPosition;
 
-inline float3 BackgroundColor(float3 origin, float3 direction)
-{
-	/*float3 lightPos = LightPosition + float3(0, -50, -50);
-	float3 normLightVector = normalize(float3(0, 0, 0) - lightPos);
-	float distToLight = distance(origin, lightPos);
-	float3 normMissVector = normalize(float3(0, 0, 0) - (distToLight * direction));
-	float dist = distance(normLightVector, normMissVector);
-	float t = (dist - 0.03f) / (2 - 0.03f);
-
-	if (t < 0.03)
-		return float3(1.0f, 1.0f, 1.0f);
-	else
-	{
-		return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.0f, 0.0f, 0.0f);
-	}*/
-
-	float t = 0.5f * (direction.y + 1.0f);
-	return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
-}
-
 [shader("raygeneration")]
 void NormalsRaygenShader()
 {

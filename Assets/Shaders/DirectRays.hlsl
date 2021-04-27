@@ -1,12 +1,12 @@
 ﻿struct RayPayload
 {
     int remainingDepth;
-    float color;
+    float3 color;
     uint randomSeed;
 };
 
 // Shoots direct sun rays
-float shootDirectLightRay(float3 orig, float3 dir, float minT, float maxT, int remainingDepth, uint randSeed)
+float3 shootDirectLightRay(float3 orig, float3 dir, float minT, float maxT, int remainingDepth, uint randSeed)
 {
     uint flags = RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
 
@@ -19,7 +19,7 @@ float shootDirectLightRay(float3 orig, float3 dir, float minT, float maxT, int r
     RayPayload rayPayload;
     rayPayload.randomSeed = randSeed;
     rayPayload.remainingDepth = remainingDepth - 1;
-    rayPayload.color = 0.0f;
+    rayPayload.color = float3(0.0f, 0.0f, 0.0f);
 
     TraceRay(_AccelerationStructure, flags, 0x01, 0, 1, 0, rayDescriptor, rayPayload);
 

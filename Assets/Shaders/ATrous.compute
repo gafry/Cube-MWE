@@ -36,7 +36,7 @@ static const float aTrousFilter5x5[5][5] =
     1.0 / 256.0, 1.0 / 64.0, 3.0 / 128.0, 1.0 / 64.0, 1.0 / 256.0
 };
 
-static const float gaussianFilter[3][3] =
+static const float gaussianFilter3x3[3][3] =
 {
     { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 },
     { 1.0 / 8.0,  1.0 / 4.0, 1.0 / 8.0  },
@@ -50,6 +50,15 @@ static const float gaussianFilter5x5[5][5] =
     { 7.0 / 273.0, 26.0 / 273.0, 41.0 / 273.0, 26.0 / 273.0, 7.0 / 273.0 },
     { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
     { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 }
+};
+
+static const float blur5x5[5][5] =
+{
+    { 0.04, 0.04, 0.04, 0.04, 0.04 },
+    { 0.04, 0.04, 0.04, 0.04, 0.04 },
+    { 0.04, 0.04, 0.04, 0.04, 0.04 },
+    { 0.04, 0.04, 0.04, 0.04, 0.04 },
+    { 0.04, 0.04, 0.04, 0.04, 0.04 }
 };
 
 float NormalEdgeStopping(float3 normalValue, float3 normalTmp)
@@ -78,8 +87,8 @@ bool WorldPositionEdgeStopping(float3 positionValue, float3 positionTmp, int ste
 
 void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue, int size)
 {
-    /*float ShadowPhi = 1 / Iteration * 3.3f;
-    float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
+    //float ShadowPhi = 1 / Iteration * AdaptCoef;
+    /*float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
     float NormalPhi = 1 / float(1 << Iteration) * 1e-2f;*/
     float ShadowPhi = 1.0;
     float PositionPhi = 0.3;
@@ -123,11 +132,79 @@ void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue,
 
             // shadow
             float4 shadowTmp = ShadowInput.Load(uv);
-            t = shadowValue - shadowTmp;
-            distance2 = dot(t, t);
-            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);            
+            t = abs(shadowValue - shadowTmp);
+            distance2 = dot(shadowValue, shadowTmp);
+            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
+            //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
 
             float weightedKernel; 
+            if (size == 3)
+                weightedKernel = shadowW * normalW * aTrousFilter3x3[x + i][y + i];
+            else
+                weightedKernel = shadowW * normalW * aTrousFilter5x5[x + i][y + i];
+            sum += shadowTmp * weightedKernel;
+            cumW += weightedKernel;
+        }
+    }
+
+    FilteredOutput[dispatchThreadId.xy] = sum / cumW;
+    float4 result = sum / cumW;
+}
+
+void ATrousIxIWithIndirect(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue, float4 indirectValue, int size)
+{
+    //float ShadowPhi = 1 / Iteration * AdaptCoef;
+    /*float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
+    float NormalPhi = 1 / float(1 << Iteration) * 1e-2f;*/
+    float ShadowPhi = 1.0;
+    float PositionPhi = 0.3;
+    float NormalPhi = 0.5;
+
+    float4 sum = float4(0, 0, 0, 0);
+    float4 sumIndirect = float4(0, 0, 0, 0);
+    //float3 normalValue = GBufferNormals.Load(dispatchThreadId).xyz;
+    float4 normalValue = float4(GBufferNormals.Load(dispatchThreadId).xyz, 1.0f);
+
+    float cumW = 0.0f;
+    float weight = 0.0f;
+    float shadowW = 0.0f;
+    float normalW = 0.0f;
+    float positionW = 0.0f;
+    float4 t = 0.0f;
+    float distance2 = 0.0f;
+    int i = (size - 1) / 2;
+    for (int x = -i; x <= i; x++)
+    {
+        for (int y = -i; y <= i; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x, y, 0) * StepWidth;
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+                continue;
+
+            // Position
+            float3 positionTmp = Position.Load(uv).xyz;
+            if (WorldPositionEdgeStopping(float3(positionValue.xyz), positionTmp, StepWidth, positionValue.w))
+                continue;
+
+            // normal
+            /*float3 normalTmp = GBufferNormals.Load(uv).xyz;
+            normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
+            float4 normalTmp = float4(GBufferNormals.Load(uv).xyz, 1.0f);
+            t = normalValue - normalTmp;
+            distance2 = max(dot(t, t), 0.0f);
+            normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
+            if (distance2 > 0.8 || normalW == 0)
+                continue;
+
+            // shadow
+            float4 shadowTmp = ShadowInput.Load(uv);
+            t = abs(shadowValue - shadowTmp);
+            distance2 = dot(shadowValue, shadowTmp);
+            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
+            //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
+
+            float weightedKernel;
             if (size == 3)
                 weightedKernel = shadowW * normalW * aTrousFilter3x3[x + i][y + i];
             else

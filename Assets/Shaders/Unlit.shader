@@ -90,73 +90,44 @@
             }
     }
 
-        /*SubShader
+    SubShader
+    {
+        Pass
+        {
+            Name "DirectLighting"
+            Tags { "LightMode" = "RayTracing" }
+
+            HLSLPROGRAM
+
+            #pragma raytracing test
+
+            #include "./Common.hlsl"
+
+            #include "Shadows.hlsl"
+            #include "DirectRays.hlsl"
+
+            CBUFFER_START(UnityPerMaterial)
+            float4 _Color;
+            float _Kd;
+            CBUFFER_END
+
+            cbuffer PointLight
             {
-                Pass
-                {
-                    Name "RayTracing"
-                    Tags { "LightMode" = "RayTracing" }
+                float3 LightPosition;
+            };
 
-                    HLSLPROGRAM
+            Texture2D _BaseColorMap;
+            SamplerState sampler_BaseColorMap;
 
-                    #pragma raytracing test
-
-                    #include "./Common.hlsl"
-
-                    CBUFFER_START(UnityPerMaterial)
-                    float4 _Color;
-                    CBUFFER_END
-
-                    [shader("closesthit")]
-                    void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-                    {
-                        *//*// Fetch the indices of the currentr triangle
-                        uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
-
-                        // Fetch the 3 vertices
-                        IntersectionVertex v0, v1, v2;
-                        FetchIntersectionVertex(triangleIndices.x, v0);
-                        FetchIntersectionVertex(triangleIndices.y, v1);
-                        FetchIntersectionVertex(triangleIndices.z, v2);
-
-                        // Compute the full barycentric coordinates
-                        float3 barycentricCoordinates = float3(1.0 - attributeData.barycentrics.x - attributeData.barycentrics.y, attributeData.barycentrics.x, attributeData.barycentrics.y);
-
-                        float3 normalOS = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.normalOS, v1.normalOS, v2.normalOS, barycentricCoordinates);
-                        float3x3 objectToWorld = (float3x3)ObjectToWorld3x4();
-                        float3 normalWS = normalize(mul(objectToWorld, normalOS));
-
-                        rayPayload.color = float4(0.5f * (normalWS + 1.0f), 0);*//*
-
-                        rayPayload.color = _Color;
-                    }
-
-                    ENDHLSL
-                }
-            }*/
-
-            SubShader
+            [shader("closesthit")]
+            void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
             {
-                Pass
-                {
-                    Name "AO"
-                    Tags { "LightMode" = "RayTracing" }
-
-                    HLSLPROGRAM
-
-                    #pragma raytracing test
-
-                    #include "./Common.hlsl"
-
-                    [shader("closesthit")]
-                    void ClosestHitShader(inout RayPayloadAO rayPayloadAO : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-                    {
-                    rayPayloadAO.AOValue = 0.0f;
-                    }
-
-                    ENDHLSL
-                }
+                rayPayload.color = _Color.xyz;
             }
+
+            ENDHLSL
+        }
+    }
 
     SubShader
     {

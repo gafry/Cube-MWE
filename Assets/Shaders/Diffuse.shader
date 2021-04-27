@@ -78,6 +78,120 @@
                 float3 LightPosition;
             };
 
+            Texture2D _BaseColorMap;
+            SamplerState sampler_BaseColorMap;
+
+            [shader("closesthit")]
+            void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+            {
+                // Fetch the indices of the currentr triangle
+                uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+
+                // Fetch the 3 vertices
+                IntersectionVertex v0, v1, v2;
+                FetchIntersectionVertex(triangleIndices.x, v0);
+                FetchIntersectionVertex(triangleIndices.y, v1);
+                FetchIntersectionVertex(triangleIndices.z, v2);
+
+                // Compute the full barycentric coordinates
+                float3 barycentricCoordinates = float3(1.0 - attributeData.barycentrics.x - attributeData.barycentrics.y, attributeData.barycentrics.x, attributeData.barycentrics.y);
+
+                float3 normalOS = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.normalOS, v1.normalOS, v2.normalOS, barycentricCoordinates);
+                float3x3 objectToWorld = (float3x3)ObjectToWorld3x4();
+                float3 worldNorm = normalize(mul(objectToWorld, normalOS));
+
+                // Get position in world space.
+                float3 origin = WorldRayOrigin();
+                float3 direction = WorldRayDirection();
+                float t = RayTCurrent();
+                float3 worldPos = origin + direction * t;
+                float3 worldDir = getCosHemisphereSample(rayPayload.randomSeed, worldNorm);
+
+                float primary = 0.0f;
+                float sunSize = 100.0f;
+
+                float lightIntensity = 2.0f;
+
+                if (LightPosition.y + sunSize > 0)
+                {
+                    float3 dirToLight3 = normalize(LightPosition - worldPos);
+                    float3 sampleOnHemisphere = LightPosition + sunSize * SampleHemisphereCosine(rayPayload.randomSeed, dirToLight3);
+                    dirToLight3 = normalize(sampleOnHemisphere - worldPos);
+                    float distToLight3 = length(sampleOnHemisphere - worldPos) - 0.2f;
+                    float4 lightColor3 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+                    //float nDotL = max(0.f, dot(worldNorm, dirToLight3));
+                    float nDotL = saturate(dot(worldNorm, dirToLight3));
+
+                    // Shoot shadow ray with our encapsulated shadow tracing function
+                    float shadow = shootShadowRay(worldPos, dirToLight3, 1.0e-4f, distToLight3);
+                    primary = nDotL * max(0.f, shadow) * lightIntensity;
+                }
+                else
+                {
+                    primary = 0.1f;
+                }
+
+                float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
+                float4 textureColor;
+                if (t < 20)
+                {
+                    texCoord0.x = min(0.5f + (texCoord0.x / 2), 1.0f);
+                    texCoord0.y = texCoord0.y / 2;
+                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                }
+                else if (t < 30)
+                {
+                    texCoord0.x = min(0.75f + (texCoord0.x / 4), 1.0f);
+                    texCoord0.y = texCoord0.y / 4;
+                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                }
+                else if (t < 100)
+                {
+                    texCoord0.x = min(0.875f + (texCoord0.x / 8), 1.0f);
+                    texCoord0.y = texCoord0.y / 8;
+                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                }
+                else if (t > 10)
+                {
+                    texCoord0.x = min(0.9375f + (texCoord0.x / 16), 1.0f);
+                    texCoord0.y = texCoord0.y / 16;
+                    textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
+                }
+
+                rayPayload.color = primary * 0.2f * textureColor;
+                //rayPayload.color = float3(0, 0, 0);
+            }
+
+            ENDHLSL
+        }
+    }
+
+    /*SubShader
+    {
+        Pass
+        {
+            Name "DirectLighting"
+            Tags { "LightMode" = "RayTracing" }
+
+            HLSLPROGRAM
+
+            #pragma raytracing test
+
+            #include "./Common.hlsl"
+
+            #include "Shadows.hlsl"
+            #include "DirectRays.hlsl"
+
+            CBUFFER_START(UnityPerMaterial)
+            float4 _Color;
+            float _Kd;
+            CBUFFER_END
+
+            cbuffer PointLight
+            {
+                float3 LightPosition;
+            };
+
             [shader("closesthit")]
             void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
             {
@@ -143,7 +257,7 @@
 
             ENDHLSL
         }
-    }
+    }*/
 
     /*SubShader
     {
