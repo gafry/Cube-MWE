@@ -47,47 +47,6 @@
 
             ENDCG
         }
-
-        Pass
-        {
-            Name "GBuffer"
-            CGPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-                // make fog work
-                #pragma multi_compile_fog
-
-                #include "UnityCG.cginc"
-
-                struct appdata
-                {
-                    float4 vertex : POSITION;
-                    float3 normal : NORMAL;
-                };
-
-                struct v2f
-                {
-                    float3 normal : TEXCOORD0;
-                    UNITY_FOG_COORDS(1)
-                    float4 vertex : SV_POSITION;
-                };
-
-                v2f vert(appdata v)
-                {
-                    v2f o;
-                    o.vertex = UnityObjectToClipPos(v.vertex);
-                    o.normal = UnityObjectToWorldNormal(v.normal);
-                    UNITY_TRANSFER_FOG(o, o.vertex);
-                    return o;
-                }
-
-                float4 frag(v2f i) : SV_Target
-                {
-                    float4 col = float4(i.normal, i.vertex.z);
-                    return col;
-                }
-                ENDCG
-            }
     }
 
     SubShader
@@ -151,7 +110,7 @@
             SamplerState sampler_BaseColorMap;
 
             [shader("closesthit")]
-            void ClosestHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+            void ClosestHitShader(inout RayPayloadGBuffer rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
             {
                 // Fetch the indices of the currentr triangle
                 uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
@@ -175,49 +134,17 @@
                 float t = RayTCurrent();
                 float3 positionWS = origin + direction * t;
 
-                float instanceID = InstanceID() / 4.0f;
-                rayPayload.normalAndId = float4(normalWS, instanceID);
-                rayPayload.worldPosition = float4(positionWS, 1.0f);
-                rayPayload.albedo = _Color.xyz;
+                float instanceID = InstanceID();
 
-                //SamplerState sampler_BaseColorMap;
-                //float2 texCoord0 = INTERPOLATE_RAYTRACING_ATTRIBUTE(v0.texCoord0, v1.texCoord0, v2.texCoord0, barycentricCoordinates);
-                //float4 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
-                //UNITY_DECLARE_TEX2D(_BaseColorMap);
-                //float4 textureColor = UNITY_SAMPLE_TEX2D(_BaseColorMap, float2(0.1, 0.2));
-                //float4 textureColor = tex2D(_BaseColorMap, float2(0.1, 0.2));
-                //rayPayload.albedo = textureColor.xyz;
+                rayPayload.normal = normalWS;
+                rayPayload.worldPosition = positionWS;
+                rayPayload.albedo = _Color.xyz;
+                rayPayload.distance = t;
+                rayPayload.id = instanceID;
+                rayPayload.material = 2.0f;
             }
 
         ENDHLSL
-        }
-    }
-
-    SubShader
-    {
-        Pass
-        {
-            Name "CubeLights"
-            Tags { "LightMode" = "RayTracing" }
-
-            HLSLPROGRAM
-
-            #pragma target 3.5
-            #pragma raytracing test
-
-            #include "./Common.hlsl"
-
-            CBUFFER_START(UnityPerMaterial)
-            float4 _Color;
-            CBUFFER_END
-
-            [shader("closesthit")]
-            void ClosestHitShader(inout RayPayloadAO rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-            {
-                rayPayload.AOValue = 1.0;
-            }
-
-            ENDHLSL
         }
     }
 }

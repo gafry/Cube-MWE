@@ -8,6 +8,18 @@ public class VoxelRenderPipelineInstance : RenderPipeline
     private VoxelRenderPipelineAsset _renderPipelineAsset;
     private Stopwatch st = new Stopwatch();
 
+    // Settings
+    private bool bAmbientOcclusion;
+    private bool bDirectLighting;
+    private bool bIndirectLighting;
+    private bool bReprojection;
+    private bool bVariance;
+    private bool bFiltering;
+    private bool bReprojectWithIDs;
+    private bool bCombineAlbedoAndShadows;
+    private bool bDayNightEfect;
+    private bool bSoftShadowsOn;
+
     // Camera renderer
     CameraRenderer renderer = new CameraRenderer();
 
@@ -30,8 +42,20 @@ public class VoxelRenderPipelineInstance : RenderPipeline
         // Execute Render function for each camera
         foreach (Camera camera in cameras)
         {
+            bAmbientOcclusion = Settings.Instance.AO > 0;
+            bDirectLighting = Settings.Instance.directLightingOn;
+            bIndirectLighting = Settings.Instance.indirectLightingOn;
+            bReprojection = Settings.Instance.reprojectionOn;
+            bVariance = Settings.Instance.varianceOn;
+            bFiltering = Settings.Instance.filteringOn;
+            bReprojectWithIDs = Settings.Instance.reprojectWithIDs;
+            bCombineAlbedoAndShadows = Settings.Instance.combineAlbedoAndShadows;
+            bDayNightEfect = Settings.Instance.dayNightEfect;
+            bSoftShadowsOn = Settings.Instance.softShadowsOn;
+
             renderer.Render(context, camera, _renderPipelineAsset.MotionVectorShader, _renderPipelineAsset.ReprojectionShader, _renderPipelineAsset.BlitShader,
-                _renderPipelineAsset.FilterShader, _renderPipelineAsset.VarianceShader);
+                _renderPipelineAsset.FilterShader, _renderPipelineAsset.VarianceShader, bAmbientOcclusion, bDirectLighting, bIndirectLighting, bReprojection,
+                bVariance, bFiltering, bReprojectWithIDs, bCombineAlbedoAndShadows, bDayNightEfect, bSoftShadowsOn);
         }
 
         // Tell the Scriptable Render Context to tell the graphics API to perform the scheduled commands

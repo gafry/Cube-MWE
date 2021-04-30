@@ -1,5 +1,7 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel EstimateVariance
+#pragma kernel EstimateVarianceIndirect
+#pragma kernel EstimateVarianceWithIndirect
 #pragma kernel GaussianVariance
 
 // Group size
@@ -9,7 +11,8 @@
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
 Texture2D<float4> ShadowInput;
-RWTexture2D<float4> HistoryBuffer;
+Texture2D<float4> IndirectBuffer;
+RWTexture2D<float4> _OutputTarget;
 float CameraX;
 float CameraY;
 float StartCoef;
@@ -33,7 +36,6 @@ static const float gaussianFilter[3][3] =
 [numthreads(size_x, size_y, 1)]
 void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    float4 history = HistoryBuffer.Load(dispatchThreadId.xy);
     float sum = 0.0f;
     float sum_2 = 0.0f;
     uint n = 0;
@@ -66,15 +68,106 @@ void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
     float variance = max(0, (invN * sum - mean * mean) * besselCorrection);
 
     /*if (variance > 0.25f)
-        HistoryBuffer[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+        _OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
     else*/
-        HistoryBuffer[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
+    _OutputTarget[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
+}
+
+[numthreads(size_x, size_y, 1)]
+void EstimateVarianceIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float3 sum = 0.0f;
+    float3 sum_2 = 0.0f;
+    uint n = 0;
+
+    int i = 3;
+
+    // ixi sample
+    for (int x = -i; x <= i; x++)
+    {
+        for (int y = -i; y <= i; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x, y, 0);
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+            {
+                continue;
+            }
+
+            n++;
+            float3 y_i = ShadowInput.Load(uv).xyz;
+            sum_2 += (y_i * y_i);
+            sum += y_i;
+        }
+    }
+
+    float invN = 1.0f / max(1, n);
+    float mean = sum * invN;
+    float besselCorrection = n / max(1, n - 1);
+
+    float3 tmp = (invN * sum_2 - mean * mean) * besselCorrection;
+    tmp = float3(max(0, tmp.x), max(0, tmp.y), max(0, tmp.z));
+    float variance = sqrt(tmp.x * tmp.x + tmp.y * tmp.y + tmp.z * tmp.z);
+
+    /*if (variance > 0.25f)
+        _OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    else*/
+    _OutputTarget[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
+}
+
+[numthreads(size_x, size_y, 1)]
+void EstimateVarianceWithIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float sum = 0.0f;
+    float sum_2 = 0.0f;
+    float3 sumIndirect = 0.0f;
+    float3 sumIndirect_2 = 0.0f;
+    uint n = 0;
+
+    int i = 3;
+
+    // ixi sample
+    for (int x = -i; x <= i; x++)
+    {
+        for (int y = -i; y <= i; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x, y, 0);
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
+            {
+                continue;
+            }
+
+            n++;
+            float y_i = ShadowInput.Load(uv).x;
+            sum_2 += (y_i * y_i);
+            sum += y_i;
+            float yIndirect_i = IndirectBuffer.Load(uv).x;
+            sumIndirect_2 += (yIndirect_i * yIndirect_i);
+            sumIndirect += yIndirect_i;
+        }
+    }
+
+    float invN = 1.0f / max(1, n);
+    float mean = sum * invN;
+    float meanIndirect = sumIndirect * invN;
+    float besselCorrection = n / max(1, n - 1);
+
+    float variance = max(0, (invN * sum - mean * mean) * besselCorrection);
+    float3 tmp = (invN * sumIndirect_2 - meanIndirect * meanIndirect) * besselCorrection;
+    tmp = float3(max(0, tmp.x), max(0, tmp.y), max(0, tmp.z));
+    float varianceIndirect = sqrt(tmp.x * tmp.x + tmp.y * tmp.y + tmp.z * tmp.z);
+
+    /*if (variance > 0.25f)
+        _OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    else*/
+    _OutputTarget[dispatchThreadId.xy] = float4(variance, varianceIndirect, 0, 1);
 }
 
 [numthreads(size_x, size_y, 1)]
 void GaussianVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    float4 historyValue = HistoryBuffer.Load(dispatchThreadId);
+    /*float4 historyValue = HistoryBuffer.Load(dispatchThreadId);
     float sum = 0.0f;
     float weight = 0.0f;
     for (int x = 0; x < 5; x++)
@@ -90,5 +183,5 @@ void GaussianVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
-    HistoryBuffer[dispatchThreadId.xy] = float4(sum, sum, sum, 1);
+    _OutputTarget[dispatchThreadId.xy] = float4(sum, sum, sum, 1);*/
 }

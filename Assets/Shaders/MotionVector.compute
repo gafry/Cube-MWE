@@ -7,8 +7,8 @@
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
-Texture2D<float4> Position;
-RWTexture2D<float4> MotionVectorOutput;
+Texture2D<float4> GBufferPositionsAndDepth;
+RWTexture2D<float4> _OutputTarget;
 float4x4 PrevViewProj;
 float CameraX;
 float CameraY;
@@ -23,7 +23,7 @@ inline float2 ClipSpaceToTexturePosition(in float4 clipSpacePosition)
 [numthreads(size_x, size_y, 1)]
 void MotionVector(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    float4 position = Position.Load(dispatchThreadId);
+    float4 position = GBufferPositionsAndDepth.Load(dispatchThreadId);
 
     // Calculate screen space position of the hit in the previous frame
     float4 prevFrameClipSpacePosition = mul(PrevViewProj, float4(position.xyz, 1));
@@ -34,7 +34,10 @@ void MotionVector(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     // if primary ray missed, set all components to 0
     if (position.w == 0.0f)
-        MotionVectorOutput[dispatchThreadId.xy] = float4(0, 0, 0, 0);
+        _OutputTarget[dispatchThreadId.xy] = float4(0, 0, 0, 0);
     else
-        MotionVectorOutput[dispatchThreadId.xy] = float4(curFrameScreenPosition.x - prevFrameScreenPosition.x, curFrameScreenPosition.y - prevFrameScreenPosition.y, 0, 1.0f);
+    {
+        float id = _OutputTarget.Load(dispatchThreadId).w;
+        _OutputTarget[dispatchThreadId.xy] = float4(curFrameScreenPosition.x - prevFrameScreenPosition.x, curFrameScreenPosition.y - prevFrameScreenPosition.y, 0, id);
+    }
 }

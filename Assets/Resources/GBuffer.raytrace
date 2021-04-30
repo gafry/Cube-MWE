@@ -2,15 +2,18 @@
 
 #include "./../Shaders/Common.hlsl"
 
+float LightProgress;
+
 RWTexture2D<float4> _OutputTarget;
 RWTexture2D<float4> _OutputTarget2;
 RWTexture2D<float4> _OutputTarget3;
+RWTexture2D<float4> _OutputTarget4;
+
 Texture2D<float4> Materials;
 SamplerState sampler_Materials;
-float3 LightPosition;
 
 [shader("raygeneration")]
-void NormalsRaygenShader()
+void GBufferRaygenShader()
 {
 	const uint2 dispatchIdx = DispatchRaysIndex().xy;
 	
@@ -26,20 +29,28 @@ void NormalsRaygenShader()
 	rayDescriptor.TMax = _CameraFarDistance;
 
 	// Create and init the ray payload
-	RayPayloadNormals rayPayload;
-	rayPayload.normalAndId = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	rayPayload.worldPosition = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	RayPayloadGBuffer rayPayload;
+	rayPayload.normal = float3(0.0f, 0.0f, 0.0f);
+	rayPayload.worldPosition = float3(0.0f, 0.0f, 0.0f);
 	rayPayload.albedo = float3(0.0f, 0.0f, 0.0f);
+	rayPayload.distance = 0.0f;
+	rayPayload.id = 0.0f;
+	rayPayload.material = 0.0f;
 
 	TraceRay(_AccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, rayDescriptor, rayPayload);
 
-	_OutputTarget[dispatchIdx] = rayPayload.normalAndId;
-	_OutputTarget2[dispatchIdx] = rayPayload.worldPosition;
+	// Normals and material
+	_OutputTarget[dispatchIdx] = float4(rayPayload.normal, rayPayload.material);
+	// World positions and depth buffer
+	_OutputTarget2[dispatchIdx] = float4(rayPayload.worldPosition, rayPayload.distance / _CameraFarDistance);
+	// Albedo
 	_OutputTarget3[dispatchIdx] = float4(rayPayload.albedo, 1.0f);
+	// IDs
+	_OutputTarget4[dispatchIdx] = float4(0, 0, 0, rayPayload.id);
 }
 
 [shader("anyhit")]
-void AnyHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
+void AnyHitShader(inout RayPayloadGBuffer rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
 {
 	// Fetch the indices of the currentr triangle
 	/*uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
@@ -85,9 +96,9 @@ void AnyHitShader(inout RayPayloadNormals rayPayload : SV_RayPayload, AttributeD
 }
 
 [shader("miss")]
-void MissShader(inout RayPayloadNormals rayPayload : SV_RayPayload)
+void MissShader(inout RayPayloadGBuffer rayPayload : SV_RayPayload)
 {
 	float3 origin = WorldRayOrigin();
 	float3 direction = WorldRayDirection();
-	rayPayload.albedo = BackgroundColor(origin, direction);
+	rayPayload.albedo = BackgroundColor(origin, direction, LightProgress);
 }

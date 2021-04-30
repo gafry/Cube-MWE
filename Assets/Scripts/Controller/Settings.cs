@@ -12,8 +12,8 @@ public class Settings : MonoBehaviour
 
     [Header("Ray tracing options")]
     public bool groundTruthIfThereIsNoMotion = false;
-    public bool rayTracingOn = true;
-    public bool localLightsOn = false;
+    public bool directLightingOn = true;
+    public bool indirectLightingOn = false;
     public int AO = 0;
     public bool reprojectionOn = false;
     public bool varianceOn = false;
@@ -129,12 +129,12 @@ public class Settings : MonoBehaviour
 
     public void SetDirectLighting(bool b)
     {
-        rayTracingOn = !rayTracingOn;
+        directLightingOn = !directLightingOn;
     }
 
     public void SetLocalLighting(bool b)
     {
-        localLightsOn = !localLightsOn;
+        indirectLightingOn = !indirectLightingOn;
     }
 
     public void SetReprojection(bool b)
@@ -204,9 +204,9 @@ public class Settings : MonoBehaviour
         data.dayNightEfect = dayNightEfect;
         data.filteringOn = filteringOn;
         data.loadWorld = loadWorld;
-        data.localLightsOn = localLightsOn;
+        data.localLightsOn = indirectLightingOn;
         data.MinCoef = MinCoef;
-        data.rayTracingOn = rayTracingOn;
+        data.rayTracingOn = directLightingOn;
         data.reprojectionOn = reprojectionOn;
         data.StartCoef = StartCoef;
         data.varianceOn = varianceOn;
@@ -228,9 +228,9 @@ public class Settings : MonoBehaviour
         dayNightEfect = true;
         filteringOn = true;
         loadWorld = true;
-        localLightsOn = true;
+        indirectLightingOn = true;
         MinCoef = data.MinCoef;
-        rayTracingOn = data.rayTracingOn;
+        directLightingOn = true;
         reprojectionOn = true;
         StartCoef = data.StartCoef;
         varianceOn = true;
@@ -241,14 +241,23 @@ public class Settings : MonoBehaviour
         SliderMinCoef.value = MinCoef;
         SliderStartCoef.value = StartCoef;
         SliderAO.value = AO;
-        ToggleAlbedo.isOn = data.combineAlbedoAndShadows;
-        ToggleDayNight.isOn = data.dayNightEfect;
-        ToggleDL.isOn = rayTracingOn;
-        ToggleFiltering.isOn = data.filteringOn;
-        ToggleLL.isOn = data.localLightsOn;
-        ToggleReprojection.isOn = data.reprojectionOn;
-        ToggleVariance.isOn = data.varianceOn;
-        ToggleWorldGen.isOn = data.loadWorld;
-        ToggleSoftShadows.isOn = data.softShadowsOn;
+        if (!data.combineAlbedoAndShadows)
+            ToggleAlbedo.isOn = data.combineAlbedoAndShadows;
+        if (!data.dayNightEfect)
+            ToggleDayNight.isOn = data.dayNightEfect;
+        if (!data.rayTracingOn)
+            ToggleDL.isOn = data.rayTracingOn;
+        if (!data.filteringOn)
+            ToggleFiltering.isOn = data.filteringOn;
+        if (!data.localLightsOn)
+            ToggleLL.isOn = data.localLightsOn;
+        if (!data.reprojectionOn)
+            ToggleReprojection.isOn = data.reprojectionOn;
+        if (!data.varianceOn)
+            ToggleVariance.isOn = data.varianceOn;
+        if (!data.loadWorld)
+            ToggleWorldGen.isOn = data.loadWorld;
+        if (!data.softShadowsOn)
+            ToggleSoftShadows.isOn = data.softShadowsOn;
     }
 }

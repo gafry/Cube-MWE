@@ -105,7 +105,6 @@ public class Chunk
             return true;
         else
             return false;
-
     }
 
     public JobHandle GenerateTrees()

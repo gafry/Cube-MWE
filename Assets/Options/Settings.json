@@ -7,10 +7,10 @@
     "depthOfRecursion": 5,
     "reprojectionOn": true,
     "varianceOn": true,
-    "filteringOn": true,
+    "filteringOn": false,
     "combineAlbedoAndShadows": false,
-    "StartCoef": 10.0,
-    "AdaptCoef": 5.0,
-    "MinCoef": 10.0,
-    "softShadowsOn": false
+    "StartCoef": 0.11999999731779099,
+    "AdaptCoef": 0.11999999731779099,
+    "MinCoef": 2.2649240493774416,
+    "softShadowsOn": true
 }

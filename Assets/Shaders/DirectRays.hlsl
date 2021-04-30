@@ -21,7 +21,7 @@ float3 shootDirectLightRay(float3 orig, float3 dir, float minT, float maxT, int 
     rayPayload.remainingDepth = remainingDepth - 1;
     rayPayload.color = float3(0.0f, 0.0f, 0.0f);
 
-    TraceRay(_AccelerationStructure, flags, 0x01, 0, 1, 0, rayDescriptor, rayPayload);
+    TraceRay(_AccelerationStructure, flags, 0xFF, 0, 1, 0, rayDescriptor, rayPayload);
 
     return rayPayload.color;
 }

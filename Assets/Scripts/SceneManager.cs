@@ -43,8 +43,6 @@ public class SceneManager : MonoBehaviour
 
     private RayTracingAccelerationStructure _accelerationStructure;
 
-    public readonly int accelerationStructureShaderId = Shader.PropertyToID("_AccelerationStructure");
-
     private static SceneManager s_Instance;
 
     public static SceneManager Instance
@@ -151,8 +149,6 @@ public class SceneManager : MonoBehaviour
         {
             if (_accelerationStructure != null)
             {
-                //_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
-                //_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
                 _accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
                 _accelerationStructure.Build();
             }
@@ -259,9 +255,9 @@ public class SceneManager : MonoBehaviour
         }
         else if (phase == Phase.RemovingChunks)
         {
-            /*int radiusInChunks = _chunkSize * _radius;
+            int radiusInChunks = _chunkSize * _radius;
             RemoveChunks(chunkWherePlayerStands, radiusInChunks);
-            if (_iter < 0)*/
+            if (_iter < 0)
                 phase = Phase.Resting;
         }
         else
@@ -365,6 +361,12 @@ public class SceneManager : MonoBehaviour
         BlockData.Triangles.Dispose();
         BlockData.UVs.Dispose();
 
+        foreach (KeyValuePair<Vector3Int, Chunk> pair in chunks)
+        {
+            pair.Value.DisposeBlocks();
+            Destroy(pair.Value.chunk);
+        }
+
         centroids.Dispose();
         if (_jobHandlesAlocated)
             _jobHandles.Dispose();
@@ -378,6 +380,12 @@ public class SceneManager : MonoBehaviour
     public Vector3 GetSunPosition()
     {
         return sun.transform.position;
+    }
+
+    public float GetSunProgress()
+    {
+        Sun sunScript = sun.GetComponent<Sun>();
+        return sunScript.progress;
     }
 
     public Vector3 GetPlayerPosition()

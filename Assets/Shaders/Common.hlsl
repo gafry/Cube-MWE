@@ -28,11 +28,14 @@ CBUFFER_END
 
 RaytracingAccelerationStructure _AccelerationStructure;
 
-struct RayPayloadNormals
+struct RayPayloadGBuffer
 {
-	float4 normalAndId;
-	float4 worldPosition;
+	float3 normal;
+	float id;
+	float3 worldPosition;
 	float3 albedo;
+	float distance;
+	float material;
 };
 
 struct RayPayloadAO
@@ -58,7 +61,7 @@ struct ONB
 	float3 w;
 };
 
-inline float3 BackgroundColor(float3 origin, float3 direction)
+inline float3 BackgroundColor(float3 origin, float3 direction, float LightProgress)
 {
 	/*float3 lightPos = LightPosition + float3(0, -50, -50);
 	float3 normLightVector = normalize(float3(0, 0, 0) - lightPos);
@@ -74,8 +77,24 @@ inline float3 BackgroundColor(float3 origin, float3 direction)
 		return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.0f, 0.0f, 0.0f);
 	}*/
 
+	float multiplier;
+	float nightValue = 0.05f;
+	float dayValue = 0.85f;
+	float nightProgress = 0.6f;
+	float dayProgress = 0.4f;
+	if (LightProgress < 0.5f)
+		multiplier = LightProgress * 2;
+	else
+		multiplier = (1.f - LightProgress) * 2;
+
+	if (LightProgress >= dayProgress && LightProgress <= nightProgress) multiplier = nightValue;
+	else if (LightProgress > nightProgress) multiplier = nightValue + ((dayValue - nightValue) / (1.0f - nightProgress)) * (LightProgress - nightProgress);
+	else if (LightProgress < dayProgress) multiplier = dayValue - (nightValue + ((dayValue - nightValue) / (dayProgress - 0.0f)) * (LightProgress - 0.0f)) + nightValue;
+	multiplier = min(0.55f, multiplier);
+	//output = output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start)
+
 	float t = 0.5f * (direction.y + 1.0f);
-	return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f);
+	return ((1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * multiplier;
 }
 
 // Generates a seed for a random number generator from 2 inputs plus a backoff
@@ -172,6 +191,12 @@ float3 SampleHemisphereCosine(inout uint randSeed, float3 normal)
 	float2 randVal = float2(nextRand(randSeed), nextRand(randSeed));
 	float3 pointOnSphere = SampleSphereUniform(randVal);
 	return normalize(normal + pointOnSphere);
+}
+
+float3 GetPointOnSphere(inout uint randSeed)
+{
+	float3 randVector = float3(nextRand(randSeed), nextRand(randSeed), nextRand(randSeed));
+	return normalize(randVector);
 }
 
 void FetchIntersectionVertex(uint vertexIndex, out IntersectionVertex outVertex)

@@ -1,5 +1,6 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel ATrous
+#pragma kernel ATrousWithIndirect
 
 // Group size
 #define size_x 24
@@ -8,17 +9,21 @@
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
 Texture2D<float4> ShadowInput;
-Texture2D<float4> Position;
-Texture2D<float4> GBufferNormals;
-Texture2D<float4> HistoryBuffer;
-RWTexture2D<float4> FilteredOutput;
+Texture2D<float4> IndirectBuffer;
+Texture2D<float4> GBufferPositionsAndDepth;
+Texture2D<float4> GBufferNormalsAndMaterials;
+Texture2D<float4> VarianceBuffer;
+RWTexture2D<float4> _OutputTarget;
+RWTexture2D<float4> _OutputTarget2;
 float CameraX;
 float CameraY;
 float StepWidth;
 bool Variance;
 uint Iteration;
 float AdaptCoef;
+float StartCoef;
 float _CameraFarDistance;
+int WithIndirectOn;
 
 static const float aTrousFilter3x3[3][3] =
 {
@@ -66,7 +71,7 @@ float NormalEdgeStopping(float3 normalValue, float3 normalTmp)
     return pow(max(0, dot(normalValue, normalTmp)), 128);
 }
 
-bool WorldPositionEdgeStopping(float3 positionValue, float3 positionTmp, int stepSize, float t)
+bool WorldPositionEdgeStopping(float3 positionValue, float3 positionTmp, int stepSize)
 {
     float3 heading;
     heading.x = positionValue.x - positionTmp.x;
@@ -85,7 +90,47 @@ bool WorldPositionEdgeStopping(float3 positionValue, float3 positionTmp, int ste
     return distance / max(stepSize * AdaptCoef, 1e-8);*/
 }
 
-void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue, int size)
+void ATrousIxISky(uint3 dispatchThreadId, float3 positionValue, float4 shadowValue, int size)
+{
+    float material = GBufferNormalsAndMaterials.Load(dispatchThreadId).w;
+    if (material == 2)
+    {
+        _OutputTarget[dispatchThreadId.xy] = shadowValue;
+        return;
+    }
+
+    float3 sum = float4(0, 0, 0, 0);
+    float3 normalValue = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;    
+
+    float cumW = 0.0f;
+    int i = (size - 1) / 2;
+    for (int x = -i; x <= i; x++)
+    {
+        for (int y = -i; y <= i; y++)
+        {
+            int3 uv = dispatchThreadId + int3(x, y, 0) * StepWidth;
+
+            float materialTmp = GBufferNormalsAndMaterials.Load(uv).w;
+
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY || (materialTmp != 0 || materialTmp != 2))
+                continue;
+
+            float3 shadowTmp = ShadowInput.Load(uv).xyz;
+
+            float weightedKernel;
+            if (size == 3)
+                weightedKernel = aTrousFilter3x3[x + i][y + i];
+            else
+                weightedKernel = aTrousFilter5x5[x + i][y + i];
+            sum += shadowTmp * weightedKernel;
+            cumW += weightedKernel;
+        }
+    }
+
+    _OutputTarget[dispatchThreadId.xy] = float4(sum / cumW, 1.0f);
+}
+
+float4 ATrousIxI(uint3 dispatchThreadId, float3 positionValue, float4 shadowValue, int size)
 {
     //float ShadowPhi = 1 / Iteration * AdaptCoef;
     /*float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
@@ -94,16 +139,15 @@ void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue,
     float PositionPhi = 0.3;
     float NormalPhi = 0.5;
 
-    float4 sum = float4(0, 0, 0, 0);
+    float3 sum = float4(0, 0, 0, 0);
     //float3 normalValue = GBufferNormals.Load(dispatchThreadId).xyz;
-    float4 normalValue = float4(GBufferNormals.Load(dispatchThreadId).xyz, 1.0f);
+    float3 normalValue = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;
 
     float cumW = 0.0f;
-    float weight = 0.0f;
     float shadowW = 0.0f;
     float normalW = 0.0f;
     float positionW = 0.0f;
-    float4 t = 0.0f;
+    float3 t = 0.0f;
     float distance2 = 0.0f;
     int i = (size - 1) / 2;
     for (int x = -i; x <= i; x++)
@@ -116,14 +160,14 @@ void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue,
                 continue;
 
             // Position
-            float3 positionTmp = Position.Load(uv).xyz;
-            if (WorldPositionEdgeStopping(float3(positionValue.xyz), positionTmp, StepWidth, positionValue.w))
+            float3 positionTmp = GBufferPositionsAndDepth.Load(uv).xyz;
+            if (WorldPositionEdgeStopping(positionValue, positionTmp, StepWidth))
                 continue;
 
             // normal
             /*float3 normalTmp = GBufferNormals.Load(uv).xyz;
             normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
-            float4 normalTmp = float4(GBufferNormals.Load(uv).xyz, 1.0f);
+            float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
             t = normalValue - normalTmp;
             distance2 = max(dot(t, t), 0.0f);
             normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
@@ -131,8 +175,8 @@ void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue,
                 continue;
 
             // shadow
-            float4 shadowTmp = ShadowInput.Load(uv);
-            t = abs(shadowValue - shadowTmp);
+            float3 shadowTmp = ShadowInput.Load(uv).xyz;
+            t = abs(shadowValue.xyz - shadowTmp);
             distance2 = dot(shadowValue, shadowTmp);
             shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
             //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
@@ -147,11 +191,10 @@ void ATrousIxI(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue,
         }
     }
 
-    FilteredOutput[dispatchThreadId.xy] = sum / cumW;
-    float4 result = sum / cumW;
+    return float4(sum / cumW, 1.0f);
 }
 
-void ATrousIxIWithIndirect(uint3 dispatchThreadId, float4 positionValue, float4 shadowValue, float4 indirectValue, int size)
+void ATrousIxIWithIndirect(uint3 dispatchThreadId, float3 positionValue, float4 shadowValue, float4 indirectValue, int size)
 {
     //float ShadowPhi = 1 / Iteration * AdaptCoef;
     /*float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
@@ -160,17 +203,17 @@ void ATrousIxIWithIndirect(uint3 dispatchThreadId, float4 positionValue, float4 
     float PositionPhi = 0.3;
     float NormalPhi = 0.5;
 
-    float4 sum = float4(0, 0, 0, 0);
-    float4 sumIndirect = float4(0, 0, 0, 0);
-    //float3 normalValue = GBufferNormals.Load(dispatchThreadId).xyz;
-    float4 normalValue = float4(GBufferNormals.Load(dispatchThreadId).xyz, 1.0f);
+    float3 sum = float4(0, 0, 0, 0);
+    float3 sumIndirect = float4(0, 0, 0, 0);
+    float3 normalValue = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;
 
     float cumW = 0.0f;
-    float weight = 0.0f;
+    float cumWIndirect = 0.0f;
     float shadowW = 0.0f;
+    float indirectW = 0.0f;
     float normalW = 0.0f;
     float positionW = 0.0f;
-    float4 t = 0.0f;
+    float3 t = 0.0f;
     float distance2 = 0.0f;
     int i = (size - 1) / 2;
     for (int x = -i; x <= i; x++)
@@ -183,14 +226,14 @@ void ATrousIxIWithIndirect(uint3 dispatchThreadId, float4 positionValue, float4 
                 continue;
 
             // Position
-            float3 positionTmp = Position.Load(uv).xyz;
-            if (WorldPositionEdgeStopping(float3(positionValue.xyz), positionTmp, StepWidth, positionValue.w))
+            float3 positionTmp = GBufferPositionsAndDepth.Load(uv).xyz;
+            if (WorldPositionEdgeStopping(positionValue, positionTmp, StepWidth))
                 continue;
 
             // normal
             /*float3 normalTmp = GBufferNormals.Load(uv).xyz;
             normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
-            float4 normalTmp = float4(GBufferNormals.Load(uv).xyz, 1.0f);
+            float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
             t = normalValue - normalTmp;
             distance2 = max(dot(t, t), 0.0f);
             normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
@@ -198,54 +241,113 @@ void ATrousIxIWithIndirect(uint3 dispatchThreadId, float4 positionValue, float4 
                 continue;
 
             // shadow
-            float4 shadowTmp = ShadowInput.Load(uv);
-            t = abs(shadowValue - shadowTmp);
+            float3 shadowTmp = ShadowInput.Load(uv).xyz;
+            //t = abs(shadowValue.xyz - shadowTmp);
             distance2 = dot(shadowValue, shadowTmp);
             shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
             //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
 
+            // indirect
+            float3 indirectTmp = IndirectBuffer.Load(uv).xyz;
+            //t = abs(indirectValue.xyz - indirectTmp);
+            distance2 = dot(indirectValue, indirectTmp);
+            indirectW = min(exp(-(distance2) / ShadowPhi), 1.0f);
+
             float weightedKernel;
+            float weightedKernelIndirect;
             if (size == 3)
+            {
                 weightedKernel = shadowW * normalW * aTrousFilter3x3[x + i][y + i];
+                weightedKernelIndirect = indirectW * normalW * aTrousFilter3x3[x + i][y + i];
+            }
             else
+            {
                 weightedKernel = shadowW * normalW * aTrousFilter5x5[x + i][y + i];
+                weightedKernelIndirect = indirectW * normalW * aTrousFilter5x5[x + i][y + i];
+            }
             sum += shadowTmp * weightedKernel;
+            sumIndirect += indirectTmp * weightedKernel;
             cumW += weightedKernel;
+            cumWIndirect += weightedKernelIndirect;
         }
     }
 
-    FilteredOutput[dispatchThreadId.xy] = sum / cumW;
-    float4 result = sum / cumW;
+    _OutputTarget[dispatchThreadId.xy] = float4(sum / cumW, 1.0f);
+    _OutputTarget2[dispatchThreadId.xy] = float4(sumIndirect / cumWIndirect, 1.0f);
 }
 
 [numthreads(size_x, size_y, 1)]
 void ATrous(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     float4 shadowValue = ShadowInput.Load(dispatchThreadId);
-    float4 positionValue = Position.Load(dispatchThreadId);
-    float4 historyValue = HistoryBuffer.Load(dispatchThreadId);
+    float4 positionValue = GBufferPositionsAndDepth.Load(dispatchThreadId);
+    float4 varianceValue = VarianceBuffer.Load(dispatchThreadId);
 
-    float distance = positionValue.w;
-    /* Depth buffer */
-    /*FilteredOutput[dispatchThreadId.xy] = float4(positionValue.w / _CameraFarDistance, positionValue.w / _CameraFarDistance, positionValue.w / _CameraFarDistance, 1);
-    return;*/
-
-    //positionValue = float4(positionValue.x, positionValue.y, positionValue.z, 1.0f);
-
-    if (distance == 0.f)
+    if (positionValue.w == 0.f)
     {
-        FilteredOutput[dispatchThreadId.xy] = float4(1, 1, 1, 1);
+        if (WithIndirectOn < 0.5f && Iteration < 2)
+        {
+            ATrousIxISky(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
+        }
+        else
+            _OutputTarget[dispatchThreadId.xy] = float4(1, 1, 1, 1);
     }
-    else if (historyValue.x <= 0.05595371872186661f && Iteration > 2 && Variance)
+    //else if (varianceValue.x <= 0.05595371872186661f && Iteration > 2 && Variance)
+    else if (((varianceValue.x <= 0.11f && WithIndirectOn < 0.5f)/* || (varianceValue.y <= AdaptCoef && WithIndirectOn > 0.5f)*/) && Iteration > 2 && Variance)
     {
-        FilteredOutput[dispatchThreadId.xy] = shadowValue;
+        _OutputTarget[dispatchThreadId.xy] = shadowValue;
     }
-    /*else if (Iteration > 4)
-    {
-        ATrousIxI(dispatchThreadId, positionValue, shadowValue, 3);
-    }*/
     else
     {
-        ATrousIxI(dispatchThreadId, positionValue, shadowValue, 5);
+        _OutputTarget[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
+    }
+}
+
+[numthreads(size_x, size_y, 1)]
+void ATrousWithIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 shadowValue = ShadowInput.Load(dispatchThreadId);
+    float4 positionValue = GBufferPositionsAndDepth.Load(dispatchThreadId);
+    float4 varianceValue = VarianceBuffer.Load(dispatchThreadId);
+    float4 indirectValue = IndirectBuffer.Load(dispatchThreadId);
+    bool direct = false;
+    bool indirect = false;
+
+    if (positionValue.w == 0.f)
+    {
+        if (Iteration < 2)
+            ATrousIxISky(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
+        else
+            _OutputTarget[dispatchThreadId.xy] = float4(1, 1, 1, 1);
+        _OutputTarget2[dispatchThreadId.xy] = float4(1, 1, 1, 1);
+        return;
+    }
+
+    // Variance check for direct
+    if (varianceValue.x <= 0.11f && Iteration > 2 && Variance)
+    {
+        _OutputTarget[dispatchThreadId.xy] = shadowValue;
+        direct = true;
+    }
+
+    // Variance check for indirect
+    /*if (varianceValue.y <= AdaptCoef && Iteration > 2 && Variance)
+    {
+        _OutputTarget[dispatchThreadId.xy] = indirectValue;
+        indirect = true;
+    }*/
+
+    // Filter rest
+    if (!direct && !indirect)
+    {        
+        ATrousIxIWithIndirect(dispatchThreadId, float3(positionValue.xyz), shadowValue, indirectValue, 5);
+    }
+    else if (direct && !indirect)
+    {
+        _OutputTarget2[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), indirectValue, 5);
+    }
+    else if (!direct && indirect)
+    {
+        _OutputTarget[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
     }
 }

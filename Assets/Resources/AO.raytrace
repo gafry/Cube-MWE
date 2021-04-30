@@ -2,13 +2,15 @@
 
 #include "./../Shaders/Common.hlsl"
 
+// Input
+Texture2D<float4> GBufferNormalsAndMaterials;
+Texture2D<float4> GBufferPositionsAndDepth;
+// Output
 RWTexture2D<float4> _OutputTarget;
 int _NumberOfSamples = 1;
 int _FrameIndex;
 int _FrameCounter;
 float AOCoef;
-Texture2D<float4> GBufferNormals;
-Texture2D<float4> Position;
 
 // A wrapper function that encapsulates shooting an ambient occlusion ray query
 float shootAmbientOcclusionRay( float3 orig, float3 dir, float minT, float maxT )
@@ -39,8 +41,8 @@ void AORaygenShader()
 	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
 
 	// Load the position and normal from our g-buffer
-	float4 worldNorm = GBufferNormals[dispatchIdx];
-	float4 worldPos = Position[dispatchIdx];
+	float3 worldNorm = GBufferNormalsAndMaterials[dispatchIdx].xyz;
+	float4 worldPos = GBufferPositionsAndDepth[dispatchIdx];
 
 	// number of rays
 	int numberOfRays = 4;
@@ -59,7 +61,7 @@ void AORaygenShader()
 		for (int i = 0; i < numberOfRays; i++)
 		{
 			// Sample cosine-weighted hemisphere around surface normal to pick a random ray direction
-			float3 worldDir = getCosHemisphereSample(randSeed, worldNorm.xyz);
+			float3 worldDir = getCosHemisphereSample(randSeed, worldNorm);
 
 			// Shoot our ambient occlusion ray and update the value we'll output with the result
 			ambientOcclusion += shootAmbientOcclusionRay(worldPos.xyz, worldDir, 3e-5f, rayLength);

@@ -1,25 +1,28 @@
-// Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel Reprojection
+#pragma kernel ReprojectionWithIndirect
 
 // Group size
 #define size_x 24
 #define size_y 24
 
-// Create a RenderTexture with enableRandomWrite flag and set it
-// with cs.SetTexture
-Texture2D<float4> MotionVectorOutput;
+// GBuffer
+Texture2D<float4> GBufferPositionsAndDepth;
+Texture2D<float4> GBufferNormalsAndMaterials;
+Texture2D<float4> GBufferMotionVectorAndID;
+// Shadow buffers
 Texture2D<float4> CurrentFrame;
+Texture2D<float4> LastFrame;
+// Indirect buffers
 Texture2D<float4> IndirectBuffer;
 Texture2D<float4> PrevIndirectBuffer;
-Texture2D<float4> GBufferNormals;
-Texture2D<float4> Position;
-Texture2D<float4> LastFrame;
+// Previous frame GBuffer
 Texture2D<float4> PrevGBufferNormals;
 Texture2D<float4> PrevGBufferPosition;
-RWTexture2D<float4> HistoryBuffer;
-Texture2D<float4> PrevHistoryBuffer;
-RWTexture2D<float4> ReprojectedOutput;
-RWTexture2D<float4> ReprojectedOutputIndirect;
+Texture2D<float4> PrevGBufferMotionVectorAndID;
+// Output
+RWTexture2D<float4> _OutputTarget;
+RWTexture2D<float4> _OutputTarget2;
+// Variables
 float CameraX;
 float CameraY;
 bool WithID;
@@ -27,67 +30,94 @@ float StartCoef;
 float AdaptCoef;
 float MinCoef;
 float _CameraFarDistance;
-int IndirectLightingOn;
-int AOOn;
 
 // Declare one thread for each texel of the current block size.
 [numthreads(size_x, size_y, 1)]
 void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    float4 motionVector = MotionVectorOutput.Load(dispatchThreadId);
+    float2 motionVector = GBufferMotionVectorAndID.Load(dispatchThreadId).xy;
     float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
+    float4 currentWorldPosition = GBufferPositionsAndDepth.Load(dispatchThreadId);
 
     // calculate last frame position based on motion vector, if the position is outside of image or if primary ray miss, skip reprojection
-    int3 lastFramePosition = int3(dispatchThreadId.x - motionVector.x, dispatchThreadId.y - motionVector.y, 0);
-    if (lastFramePosition.x < 0 || lastFramePosition.x >= CameraX || lastFramePosition.y < 0 || lastFramePosition.y >= CameraY || motionVector.w == 0.0f)
+    int3 lastFrameCoord = int3(dispatchThreadId.x - motionVector.x, dispatchThreadId.y - motionVector.y, 0);
+    if (lastFrameCoord.x < 0 || lastFrameCoord.x >= CameraX || lastFrameCoord.y < 0 || lastFrameCoord.y >= CameraY || currentWorldPosition.w == 0.0f)
     {
-        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
-        if (IndirectLightingOn > 0)
-            ReprojectedOutputIndirect[dispatchThreadId.xy] = IndirectBuffer.Load(dispatchThreadId);
-        HistoryBuffer[dispatchThreadId.xy] = float4(0, 0, 0, 1);
+        _OutputTarget[dispatchThreadId.xy] = currentFrameColor;
         return;
     }
     
-    float4 currentNormalsandIds = GBufferNormals.Load(dispatchThreadId);    
-    float4 lastFrameColor = LastFrame.Load(lastFramePosition);
-    float4 currentWorldPosition = Position.Load(dispatchThreadId);
-    float4 lastFrameWorldPosition = PrevGBufferPosition.Load(lastFramePosition);
+    float id = GBufferMotionVectorAndID.Load(dispatchThreadId).w;
+    float prevId = PrevGBufferMotionVectorAndID.Load(lastFrameCoord).w;
+    float3 currentNormalsandIds = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;
+    float4 lastFrameColor = LastFrame.Load(lastFrameCoord);
+    float4 lastFrameWorldPosition = PrevGBufferPosition.Load(lastFrameCoord);
+    float3 heading;
+    heading.x = currentWorldPosition.x - lastFrameWorldPosition.x;
+    heading.y = currentWorldPosition.y - lastFrameWorldPosition.y;
+    heading.z = currentWorldPosition.z - lastFrameWorldPosition.z;
+    float distanceSquared = heading.x * heading.x + heading.y * heading.y + heading.z * heading.z;
+    float distance = sqrt(distanceSquared);
+    
+    // check normals and object IDs
+    float3 prevNormalsAndIds = PrevGBufferNormals.Load(lastFrameCoord).xyz;
+    float3 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
+    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.1f && ((id - prevId < 0.5f && WithID) || !WithID))
+    {
+        float coef = 0.8f;
+        float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;
+        _OutputTarget[dispatchThreadId.xy] = finalColor;
+        //_OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    }
+    else
+    {
+        _OutputTarget[dispatchThreadId.xy] = currentFrameColor;
+    }
+}
+
+[numthreads(size_x, size_y, 1)]
+void ReprojectionWithIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float2 motionVector = GBufferMotionVectorAndID.Load(dispatchThreadId).xy;
+    float4 currentFrameColor = CurrentFrame.Load(dispatchThreadId);
+    float4 currentFrameIndirect = IndirectBuffer.Load(dispatchThreadId);
+    float4 currentWorldPosition = GBufferPositionsAndDepth.Load(dispatchThreadId);
+
+    // calculate last frame position based on motion vector, if the position is outside of image or if primary ray miss, skip reprojection
+    int3 lastFrameCoord = int3(dispatchThreadId.x - motionVector.x, dispatchThreadId.y - motionVector.y, 0);
+    if (lastFrameCoord.x < 0 || lastFrameCoord.x >= CameraX || lastFrameCoord.y < 0 || lastFrameCoord.y >= CameraY || currentWorldPosition.w == 0.0f)
+    {
+        _OutputTarget[dispatchThreadId.xy] = currentFrameColor;
+        _OutputTarget2[dispatchThreadId.xy] = currentFrameIndirect;
+        return;
+    }
+
+    float id = GBufferMotionVectorAndID.Load(dispatchThreadId).w;
+    float prevId = PrevGBufferMotionVectorAndID.Load(lastFrameCoord).w;
+    float3 currentNormalsandIds = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;
+    float4 lastFrameColor = LastFrame.Load(lastFrameCoord);
+    float4 lastFrameWorldPosition = PrevGBufferPosition.Load(lastFrameCoord);
     float2 heading;
     heading.x = currentWorldPosition.x - lastFrameWorldPosition.x;
     heading.y = currentWorldPosition.y - lastFrameWorldPosition.y;
     float distanceSquared = heading.x * heading.x + heading.y * heading.y;
     float distance = sqrt(distanceSquared);
-    
-    // check normals and object IDs (object IDs are saved in currentNormalsandIds.w)
-    float4 prevNormalsAndIds = PrevGBufferNormals.Load(lastFramePosition);
-    float4 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
-    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.1f && ((currentNormalsandIds.w - prevNormalsAndIds.w < 0.5f && WithID) || !WithID))
+
+    // check normals and object IDs
+    float3 prevNormalsAndIds = PrevGBufferNormals.Load(lastFrameCoord).xyz;
+    float3 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
+    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.1f && ((id - prevId < 0.5f && WithID) || !WithID))
     {
-        float4 prevHistory = PrevHistoryBuffer[lastFramePosition.xy];
-        float coef = 0.83f;//max(MinCoef, 0.8f - (max(0, currentWorldPosition.w - StartCoef) * AdaptCoef));//max(0.6f, 0.8f - (currentWorldPosition.w / _CameraFarDistance));
+        float coef = 0.83f;
         float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;
-        ReprojectedOutput[dispatchThreadId.xy] = finalColor;
-        if (IndirectLightingOn > 0)
-        {
-            coef = 0.66f;
-            float4 finalIndirectColor = (1.0f - coef) * IndirectBuffer.Load(dispatchThreadId) + coef * PrevIndirectBuffer.Load(lastFramePosition);
-            ReprojectedOutputIndirect[dispatchThreadId.xy] = finalIndirectColor;
-        }
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(1, 0, 0, 1);
-        /*float diff = abs(finalColor.x - lastFrameColor.x);
-        //HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), prevHistory.y, 1);
-        if (diff < 0.08f && (currentFrameColor.x < 0.105f || currentFrameColor.x > 0.59))
-            HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, prevHistory.y + 1, diff, 1);
-        else
-            HistoryBuffer[dispatchThreadId.xy] = float4(prevHistory.x + 1.0f, 0, diff, 1);*/
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), ((prevHistory.x * prevHistory.y) + diff) / (prevHistory.x + 1.0f), 1);
+        _OutputTarget[dispatchThreadId.xy] = finalColor;
+        coef = 0.66f;
+        float4 finalIndirectColor = (1.0f - coef) * currentFrameIndirect + coef * PrevIndirectBuffer.Load(lastFrameCoord);
+        _OutputTarget2[dispatchThreadId.xy] = finalIndirectColor;
     }
     else
     {
-        //ReprojectedOutput[dispatchThreadId.xy] = float4(1, 0, 0, 1); //currentFrameColor;
-        ReprojectedOutput[dispatchThreadId.xy] = currentFrameColor;
-        if (IndirectLightingOn > 0)
-            ReprojectedOutputIndirect[dispatchThreadId.xy] = IndirectBuffer.Load(dispatchThreadId);
-        HistoryBuffer[dispatchThreadId.xy] = float4(0, 0, 0, 1);
+        _OutputTarget[dispatchThreadId.xy] = currentFrameColor;
+        _OutputTarget2[dispatchThreadId.xy] = currentFrameIndirect;
     }
 }
