@@ -53,7 +53,7 @@
     {
         Pass
         {
-            Name "DirectLighting"
+            Name "DirectAndIndirectLighting"
             Tags { "LightMode" = "RayTracing" }
 
             HLSLPROGRAM
@@ -82,7 +82,7 @@
             [shader("closesthit")]
             void ClosestHitShader(inout RayPayload rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
             {
-                /*// Fetch the indices of the currentr triangle
+                // Fetch the indices of the currentr triangle
                 uint3 triangleIndices = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
 
                 // Fetch the 3 vertices
@@ -131,8 +131,8 @@
                 texCoord0.x = min(0.9375f + (texCoord0.x / 16), 1.0f);
                 texCoord0.y = texCoord0.y / 16;
                 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
-                rayPayload.color = primary * 0.3f * textureColor;*/
-                rayPayload.color = float3(0.0f, 0.0f, 0.0f);
+                rayPayload.color = primary * 0.5f * textureColor;
+                //rayPayload.color = float3(0.0f, 0.0f, 0.0f);
             }
 
             ENDHLSL

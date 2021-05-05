@@ -6,7 +6,7 @@
 };
 
 // Shoots direct sun rays
-float3 shootDirectLightRay(float3 orig, float3 dir, float minT, float maxT, int remainingDepth, uint randSeed)
+float3 shootIndirectLightRay(float3 orig, float3 dir, float minT, float maxT, int remainingDepth, uint randSeed)
 {
     uint flags = RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
 

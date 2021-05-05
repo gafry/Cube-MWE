@@ -62,7 +62,7 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     // check normals and object IDs
     float3 prevNormalsAndIds = PrevGBufferNormals.Load(lastFrameCoord).xyz;
     float3 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
-    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.1f && ((id - prevId < 0.5f && WithID) || !WithID))
+    if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.05f && ((id - prevId < 0.5f && WithID) || !WithID))
     {
         float coef = 0.8f;
         float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;

@@ -56,10 +56,29 @@ struct IntersectionVertex
 
 struct ONB
 {
-	float3 u;
-	float3 v;
-	float3 w;
+	float3 forward;
+	float3 right;
+	float3 up;
 };
+
+ONB BuildONBFromNormal(float3 normal) 
+{
+	ONB onb;
+	onb.up = normal;
+	float3 tmp;
+	if (abs(onb.up.x) > 0.0f)
+		tmp = float3(0.0f, 1.0f, 0.0f);
+	else
+		tmp = float3(1.0f, 0.0f, 0.0f);
+	onb.right = normalize(cross(onb.up, tmp));
+	onb.forward = cross(onb.up, onb.right);
+	return onb;
+}
+
+float3 ONBLocal(inout ONB onb, float3 dir) 
+{
+	return dir.x * onb.forward + dir.y * onb.right + dir.z * onb.up;
+}
 
 inline float3 BackgroundColor(float3 origin, float3 direction, float LightProgress)
 {
@@ -112,14 +131,15 @@ uint initRand(uint val0, uint val1, uint backoff = 16)
 	return v0;
 }
 
-// Takes our seed, updates it, and returns a pseudorandom float in [0..1]
+// Takes seed, updates it, and returns a pseudorandom float in [0..1]
 float nextRand(inout uint s)
 {
 	s = (1664525u * s + 1013904223u);
 	return float(s & 0x00FFFFFF) / float(0x01000000);
 }
 
-float3 GetRandomCosineDir(uint seed) {
+float3 GetRandomCosineDir(uint seed) 
+{
 	float r1 = nextRand(seed);
 	float r2 = nextRand(seed);
 	float z = sqrt(1.0f - r2);

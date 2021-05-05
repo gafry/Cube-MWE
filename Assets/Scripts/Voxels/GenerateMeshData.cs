@@ -5,7 +5,7 @@ using Unity.Mathematics;
 using Unity.Burst;
 
 [BurstCompile]
-public struct ChunkJob : IJob
+public struct GenerateMeshData : IJob
 {
     public struct MeshData
     {

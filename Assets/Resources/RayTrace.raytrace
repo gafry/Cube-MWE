@@ -7,6 +7,7 @@
 // Input
 Texture2D<float4> GBufferNormalsAndMaterials;
 Texture2D<float4> GBufferPositionsAndDepth;
+Texture2D<float4> ColorInput;
 // Output
 RWTexture2D<float4> _OutputTarget;
 RWTexture2D<float4> _OutputTarget2;
@@ -19,6 +20,7 @@ float LightProgress;
 
 int SoftShadowsOn;
 int IndirectLightingOn;
+int DirectLightingOn;
 
 [shader("raygeneration")]
 void DirectAndIndirectRaygenShader()
@@ -41,7 +43,7 @@ void DirectAndIndirectRaygenShader()
 	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
 
 	float4 color = (0, 0, 0, 0);
-	float primary = 0.0f;
+	float direct = 0.0f;
 	float sunSize = 100.0f;
 	float3 indirect = float3(0.0f, 0.0f, 0.0f);
 
@@ -50,51 +52,73 @@ void DirectAndIndirectRaygenShader()
 
 	for (int i = 0; i < (int)numOfIters; i++)
 	{
-		// Sample cosine-weighted hemisphere around surface normal to pick a random ray direction
-		float3 worldDir = getCosHemisphereSample(randSeed, worldNorm);
-
-		if (IndirectLightingOn > 0)
-			indirect += shootDirectLightRay(worldPos.xyz, worldDir, 1e-5f, 40, 1, randSeed);
-
-		if (LightProgress < 0.6f || LightProgress > 0.6f)
+		if (DirectLightingOn > 0)
 		{
 			float distToLight;
-			float3 dirToLight = normalize(LightPosition - worldPos);
+			float3 dirToLight;
+
 			if (SoftShadowsOn > 0)
 			{
+				// Get random sample on sphere and calculate direction and distance to light
 				float3 sampleOnHemisphere = LightPosition + sunSize * GetPointOnSphere(randSeed);
 				dirToLight = normalize(sampleOnHemisphere - worldPos);
 				distToLight = length(sampleOnHemisphere - worldPos) - 0.2f;
 			}
 			else
+			{
+				// Calculate direction and distance to point light
+				dirToLight = normalize(LightPosition - worldPos);
 				distToLight = length(LightPosition - worldPos) - 0.2f;
-			float nDotL = max(0.3f, dot(worldNorm, dirToLight));
+			}
 
-			// Shoot shadow ray with our encapsulated shadow tracing function
+			// Shoot shadow ray to sun, calculate nDotL based on Lambert's cosine law and add the result
 			float shadow = shootShadowRay(worldPos + worldNorm * 0.001f, dirToLight, 1.0e-4f, distToLight);
-			primary += nDotL * max(0.2f, shadow);
+			float nDotL = max(0.0f, dot(worldNorm, dirToLight));
+			direct += nDotL * max(0.0f, shadow);
 		}
-		else
+		
+		if (IndirectLightingOn > 0)
 		{
-			float3 dirToLight = normalize(LightPosition - worldPos);
-			float nDotL = max(0.3f, dot(worldNorm, dirToLight));
-			float shadow = 0.0f;
-			primary += max(0.1f, shadow);
+			// Create orthonormal basis as new coord system with normal as up vector,
+			// get random cosine weighted direction and transform back to original coord system
+			ONB onb = BuildONBFromNormal(worldNorm);
+			float3 worldDir = ONBLocal(onb, GetRandomCosineDir(randSeed));
+			//worldDir = getCosHemisphereSample(randSeed, worldNorm);
+			float nDotL = max(0.0f, dot(worldNorm, worldDir));
+
+			// Shoot indirect ray and multiply by nDotL based on Lambert's cosine law and add the result
+			indirect += nDotL * shootIndirectLightRay(worldPos.xyz + worldNorm * 0.001f, worldDir, 1e-5f, 40, 1, randSeed);
 		}
 	}
 
-	float shadow = max(0.f, (primary / numOfIters));// *0.5f * secondary;
-	color = float4(shadow, shadow, shadow, 1);
+	if (DirectLightingOn > 0)
+	{
+		direct = max(0.f, (direct / numOfIters));
+		float4 shadow = float4(direct, direct, direct, 1);
+		//_OutputTarget[dispatchIdx] = float4(ColorInput[dispatchIdx].xyz, 1) * shadow;
+		_OutputTarget[dispatchIdx] = shadow;//max(shadow, 0.05f);
+		//_OutputTarget[dispatchIdx] = float4(ColorInput[dispatchIdx].xyz, 1) * (float4(indirect / numOfIters, 1) + color);
+	}
 
-	if (_FrameIndex > 1)
+	if (IndirectLightingOn > 0)
+	{
+		//float pdf = 1 / (2 * M_PI);
+		//_OutputTarget2[dispatchIdx] = float4(indirect / numOfIters, 1);
+		//indirect /= numOfIters;
+		_OutputTarget2[dispatchIdx] = 0.3f * float4(indirect / numOfIters, 1);
+	}
+
+	if (DirectLightingOn > 0 && IndirectLightingOn > 0)
+	{
+		_OutputTarget[dispatchIdx] = _OutputTarget[dispatchIdx] / M_PI + 2 * _OutputTarget2[dispatchIdx];
+	}
+
+
+	/*if (_FrameIndex > 1)
 	{
 		float a = 1.0f / (float)_FrameIndex;
 		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
-	}
-
-	_OutputTarget[dispatchIdx] = color;
-	if (IndirectLightingOn > 0)
-		_OutputTarget2[dispatchIdx] = float4(indirect / numOfIters, 1);
+	}*/
 }
 
 [shader("miss")]
@@ -102,8 +126,8 @@ void MissShader(inout RayPayload rayPayload : SV_RayPayload)
 {
 	float3 origin = WorldRayOrigin();
 	float3 direction = WorldRayDirection();
-	//rayPayload.color = 0.2f * float4(BackgroundColor(origin, direction, LightProgress), 1.0f);
-	rayPayload.color = float4(0.0f, 0.0f, 0.0f, 1.0f);
+	rayPayload.color = 0.5f * float4(BackgroundColor(origin, direction, LightProgress), 1.0f);
+	//rayPayload.color = float4(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 [shader("miss")]

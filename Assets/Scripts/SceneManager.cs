@@ -279,7 +279,7 @@ public class SceneManager : MonoBehaviour
             Settings.Instance.reprojectWithIDs = false;
     }
 
-    // Loops through all possible chunks and saves those that are not created yet to _toFinish list
+    // Loops through all possible chunks and saves those that are not created yet to _toGenerate list
     public void FindMissingChunks(Vector3Int chunkPosition, int radiusInChunks)
     {
         for (int x = chunkPosition.x - radiusInChunks; x < chunkPosition.x + radiusInChunks + 1; x += _chunkSize)

@@ -85,6 +85,7 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _VarianceId = Shader.PropertyToID("Variance");
     private readonly int _SoftShadowsOnId = Shader.PropertyToID("SoftShadowsOn");
     private readonly int _IndirectLightingOnId = Shader.PropertyToID("IndirectLightingOn");
+    private readonly int _DirectLightingOnId = Shader.PropertyToID("DirectLightingOn");
     private readonly int _WithIndirectOnId = Shader.PropertyToID("WithIndirectOn");
     private readonly int _LightIntensityId = Shader.PropertyToID("LightIntensity");
 
@@ -145,8 +146,7 @@ public class CameraRenderer : MonoBehaviour
             else if (Settings.Instance.groundTruthIfThereIsNoMotion)
                 _frameIndex++;
 
-            // get GBuffer - normals and world positions
-            // output - gBufferNormals & gBufferWorldPositions
+            // get GBuffer - normals, world positions, IDs. material, depth, albedo and motion vector
             {
                 using (new ProfilingScope(cmd, new ProfilingSampler("Normals, Albedo and World Positions")))
                 {
@@ -202,7 +202,7 @@ public class CameraRenderer : MonoBehaviour
                 using (new ProfilingScope(cmd, new ProfilingSampler("Direct and indirect lighting")))
                 {
                     // Acceleration structure and pass
-                    cmd.SetRayTracingShaderPass(_shader, "DirectLighting");
+                    cmd.SetRayTracingShaderPass(_shader, "DirectAndIndirectLighting");
                     cmd.SetRayTracingAccelerationStructure(_shader, _accelerationStructureShaderId, accelerationStructure);
                     // GBuffer
                     cmd.SetRayTracingTextureParam(_shader, _GBufferNormalsAndMaterialsId, gBufferNormalsAndMaterials);
@@ -214,6 +214,10 @@ public class CameraRenderer : MonoBehaviour
                         cmd.SetRayTracingIntParam(_shader, _IndirectLightingOnId, 1);
                     else
                         cmd.SetRayTracingIntParam(_shader, _IndirectLightingOnId, 0);
+                    if (bDirectLighting)
+                        cmd.SetRayTracingIntParam(_shader, _DirectLightingOnId, 1);
+                    else
+                        cmd.SetRayTracingIntParam(_shader, _DirectLightingOnId, 0);
                     // Sun and day/night
                     /*if (Settings.Instance.dayNightEfect)
                         cmd.SetRayTracingVectorParam(_shader, _LightPositionId, SceneManager.Instance.GetSunPosition());
@@ -231,7 +235,8 @@ public class CameraRenderer : MonoBehaviour
                     if (bSoftShadowsOn)
                         cmd.SetRayTracingIntParam(_shader, _SoftShadowsOnId, 1);
                     else
-                        cmd.SetRayTracingIntParam(_shader, _SoftShadowsOnId, 0);                    
+                        cmd.SetRayTracingIntParam(_shader, _SoftShadowsOnId, 0);
+                    cmd.SetRayTracingTextureParam(_shader, _ColorInputId, gBufferAlbedo);
                     // Dispatch
                     cmd.DispatchRays(_shader, "DirectAndIndirectRaygenShader", (uint)directLightBuffer.rt.width, (uint)directLightBuffer.rt.height, 1, camera);
                 }

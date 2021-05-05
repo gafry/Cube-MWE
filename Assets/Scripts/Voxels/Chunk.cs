@@ -10,8 +10,8 @@ public class Chunk
 
     private Material _material;
 
-    private ChunkJob.MeshData _meshData;
-    private ChunkJob _chunkJob;
+    private GenerateMeshData.MeshData _meshData;
+    private GenerateMeshData _chunkJob;
 
     private GenerateBlocksJob.ChunkData _chunkData;
     private GenerateBlocksJob _generateBlocksJob;
@@ -54,21 +54,21 @@ public class Chunk
 
     public JobHandle GenerateMeshData()
     {
-        _meshData = new ChunkJob.MeshData
+        _meshData = new GenerateMeshData.MeshData
         {
             vertices = new NativeList<int3>(Allocator.Persistent),
             triangles = new NativeList<int>(Allocator.Persistent),
             uvs = new NativeList<Vector2>(Allocator.Persistent)
         };
 
-        _chunkJob = new ChunkJob
+        _chunkJob = new GenerateMeshData
         {
             meshData = _meshData,
-            chunkData = new ChunkJob.ChunkData
+            chunkData = new GenerateMeshData.ChunkData
             {
                 blocks = _chunkData.blocks
             },
-            blockData = new ChunkJob.BlockData
+            blockData = new GenerateMeshData.BlockData
             {
                 vertices = BlockData.Vertices,
                 triangles = BlockData.Triangles,
@@ -101,7 +101,7 @@ public class Chunk
 
     public bool AreTrees()
     {
-        if (_chunkData.trees.Length > 5)
+        if (_chunkData.trees.Length >= 4)
             return true;
         else
             return false;

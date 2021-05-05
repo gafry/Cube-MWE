@@ -99,12 +99,15 @@ public struct GenerateTreesJob : IJob
             // leaves
             if (i >= treeHeight)
             {
-                for (int x = -2; x <= 2; x++)
+                int width = 2;
+                if (i >= treeHeight + ((1 + treeHeight) / 2))
+                    width = 1;
+                for (int x = -width; x <= width; x++)
                 {
-                    for (int z = -2; z <= 2; z++)
+                    for (int z = -width; z <= width; z++)
                     {
                         if ((x == 0 && z == 0) || (int)position.x + x >= 16 || (int)position.x + x < 0 ||
-                            (int)position.z + z < 0 || (int)position.z + z >= 16)
+                            (int)position.z + z < 0 || (int)position.z + z >= 16 || (int)(Hash((uint)((position.x - x) * 1420 + position.z - z + i * 13)) % 25) == 7)
                             continue;
 
                         Block block = treeBlocks[BlockUtils.GetBlockIndex16x22x16(new int3((int)position.x + x, (int)position.y + i, (int)position.z + z))];

@@ -69,19 +69,24 @@ void BlitIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
 void BlitDirectAndIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     float4 color = ColorInput.Load(dispatchThreadId);
-    float4 shadow = ShadowInput.Load(dispatchThreadId);
+    float4 direct = ShadowInput.Load(dispatchThreadId);
     float4 indirect = IndirectBuffer.Load(dispatchThreadId);
     int material = (int)GBufferNormalsAndMaterials.Load(dispatchThreadId).w;
     float lightIntensity = CalculateLightIntensity();
     if (material == 2 || material == 0)
         BlitOutput[dispatchThreadId.xy] = color;
     else
-        BlitOutput[dispatchThreadId.xy] = max(color / 12, color * lightIntensity * shadow) + indirect;
+        //BlitOutput[dispatchThreadId.xy] = shadow * color * lightIntensity;
+        //BlitOutput[dispatchThreadId.xy] = ((direct * color) / M_PI + 2 * indirect) * color;
+        BlitOutput[dispatchThreadId.xy] = direct * lightIntensity * color;
+        //BlitOutput[dispatchThreadId.xy] = max(color / 12, color * lightIntensity * (shadow + indirect));
+        //BlitOutput[dispatchThreadId.xy] = max(color / 12, color * lightIntensity * shadow) + indirect;
     //BlitOutput[dispatchThreadId.xy] = (1, 0, 0, 1);
 }
 
 [numthreads(size_x, size_y, 1)]
 void BlitAOWithDirect(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    BlitOutput[dispatchThreadId.xy] = min(ShadowInput.Load(dispatchThreadId), ColorInput.Load(dispatchThreadId));
+    BlitOutput[dispatchThreadId.xy] = ShadowInput.Load(dispatchThreadId) * ColorInput.Load(dispatchThreadId);
+    //BlitOutput[dispatchThreadId.xy] = min(ShadowInput.Load(dispatchThreadId), ColorInput.Load(dispatchThreadId));
 }

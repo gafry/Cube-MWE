@@ -53,7 +53,7 @@
     {
         Pass
         {
-            Name "DirectLighting"
+            Name "DirectAndIndirectLighting"
             Tags { "LightMode" = "RayTracing" }
 
             HLSLPROGRAM

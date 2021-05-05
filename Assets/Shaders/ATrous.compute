@@ -71,6 +71,12 @@ float NormalEdgeStopping(float3 normalValue, float3 normalTmp)
     return pow(max(0, dot(normalValue, normalTmp)), 128);
 }
 
+float ColorEdgeStopping(float3 shadowValue, float3 shadowTmp)
+{
+    float distance = dot(shadowValue, shadowTmp);
+    return min(exp(-(distance)), 1.0f);
+}
+
 bool WorldPositionEdgeStopping(float3 positionValue, float3 positionTmp, int stepSize)
 {
     float3 heading;
@@ -148,7 +154,7 @@ float4 ATrousIxI(uint3 dispatchThreadId, float3 positionValue, float4 shadowValu
     float normalW = 0.0f;
     float positionW = 0.0f;
     float3 t = 0.0f;
-    float distance2 = 0.0f;
+    float distance = 0.0f;
     int i = (size - 1) / 2;
     for (int x = -i; x <= i; x++)
     {
@@ -165,21 +171,18 @@ float4 ATrousIxI(uint3 dispatchThreadId, float3 positionValue, float4 shadowValu
                 continue;
 
             // normal
-            /*float3 normalTmp = GBufferNormals.Load(uv).xyz;
-            normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
             float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
+            normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);
+            /*float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
             t = normalValue - normalTmp;
-            distance2 = max(dot(t, t), 0.0f);
-            normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
-            if (distance2 > 0.8 || normalW == 0)
-                continue;
+            distance = max(dot(t, t), 0.0f);
+            normalW = min(exp(-(distance) / NormalPhi), 1.0f);
+            if (distance > 0.8 || normalW == 0)
+                continue;*/
 
             // shadow
             float3 shadowTmp = ShadowInput.Load(uv).xyz;
-            t = abs(shadowValue.xyz - shadowTmp);
-            distance2 = dot(shadowValue, shadowTmp);
-            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
-            //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
+            shadowW = ColorEdgeStopping(shadowValue.xyz, shadowTmp);
 
             float weightedKernel; 
             if (size == 3)
@@ -214,7 +217,7 @@ void ATrousIxIWithIndirect(uint3 dispatchThreadId, float3 positionValue, float4 
     float normalW = 0.0f;
     float positionW = 0.0f;
     float3 t = 0.0f;
-    float distance2 = 0.0f;
+    float distance = 0.0f;
     int i = (size - 1) / 2;
     for (int x = -i; x <= i; x++)
     {
@@ -235,23 +238,23 @@ void ATrousIxIWithIndirect(uint3 dispatchThreadId, float3 positionValue, float4 
             normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
             float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
             t = normalValue - normalTmp;
-            distance2 = max(dot(t, t), 0.0f);
-            normalW = min(exp(-(distance2) / NormalPhi), 1.0f);
-            if (distance2 > 0.8 || normalW == 0)
+            distance = max(dot(t, t), 0.0f);
+            normalW = min(exp(-(distance) / NormalPhi), 1.0f);
+            if (distance > 0.8 || normalW == 0)
                 continue;
 
             // shadow
             float3 shadowTmp = ShadowInput.Load(uv).xyz;
             //t = abs(shadowValue.xyz - shadowTmp);
-            distance2 = dot(shadowValue, shadowTmp);
-            shadowW = min(exp(-(distance2) / ShadowPhi), 1.0f);
-            //shadowW = exp(0.0f - (distance2 / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
+            distance = dot(shadowValue, shadowTmp);
+            shadowW = min(exp(-(distance) / ShadowPhi), 1.0f);
+            //shadowW = exp(0.0f - (distance / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
 
             // indirect
             float3 indirectTmp = IndirectBuffer.Load(uv).xyz;
             //t = abs(indirectValue.xyz - indirectTmp);
-            distance2 = dot(indirectValue, indirectTmp);
-            indirectW = min(exp(-(distance2) / ShadowPhi), 1.0f);
+            distance = dot(indirectValue, indirectTmp);
+            indirectW = min(exp(-(distance) / ShadowPhi), 1.0f);
 
             float weightedKernel;
             float weightedKernelIndirect;
@@ -285,7 +288,7 @@ void ATrous(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (positionValue.w == 0.f)
     {
-        if (WithIndirectOn < 0.5f && Iteration < 2)
+        if (WithIndirectOn < 0.5f && Iteration < 5)
         {
             ATrousIxISky(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
         }
