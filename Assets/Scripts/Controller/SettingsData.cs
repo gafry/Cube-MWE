@@ -19,4 +19,6 @@ public class SettingsData
     public float AdaptCoef;
     public float MinCoef;
     public bool softShadowsOn;
+    public int worldRadius;
+    public bool volumetricLighting;
 }

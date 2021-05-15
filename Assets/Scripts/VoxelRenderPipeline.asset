@@ -17,3 +17,4 @@ MonoBehaviour:
   VarianceShader: {fileID: 7200000, guid: ea2550985fd401740abda072d2914161, type: 3}
   FilterShader: {fileID: 7200000, guid: 825bc1e29cbe82d46a2d9a423293088d, type: 3}
   BlitShader: {fileID: 7200000, guid: 96273a92b5d9562409d618752bca6b12, type: 3}
+  VolumetricShader: {fileID: 7200000, guid: 909b5483d2c73ed458bcfa1725843c31, type: 3}

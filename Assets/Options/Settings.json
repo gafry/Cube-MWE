@@ -1,16 +1,18 @@
 {
-    "dayNightEfect": true,
+    "dayNightEfect": false,
     "loadWorld": true,
     "rayTracingOn": true,
     "localLightsOn": true,
-    "AO": 0,
-    "depthOfRecursion": 5,
+    "AO": 5,
+    "depthOfRecursion": 0,
     "reprojectionOn": true,
     "varianceOn": true,
     "filteringOn": true,
     "combineAlbedoAndShadows": true,
-    "StartCoef": 0.11999999731779099,
-    "AdaptCoef": 0.11999999731779099,
-    "MinCoef": 2.2649240493774416,
-    "softShadowsOn": true
+    "StartCoef": 4.0,
+    "AdaptCoef": 0.31312793493270876,
+    "MinCoef": 0.5900000333786011,
+    "softShadowsOn": true,
+    "worldRadius": 15,
+    "volumetricLighting": false
 }

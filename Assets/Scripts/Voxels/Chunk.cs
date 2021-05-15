@@ -20,6 +20,8 @@ public class Chunk
     private GenerateTreesJob.MeshData _treesMeshData;
     private NativeArray<Block> _treeBlocks;
 
+    private int numberOfVertices = 0;
+
     public GameObject chunk;
 
     public Chunk() { }
@@ -143,6 +145,14 @@ public class Chunk
         _chunkData.isEmpty.Dispose();
     }
 
+    public int GetNumberOfVertices()
+    {
+        if (_meshFilter != null)
+            return numberOfVertices;
+        else
+            return 0;
+    }
+
     public int FinishCreatingChunk()
     {
         if (!AreTrees())
@@ -157,6 +167,7 @@ public class Chunk
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
 
+            numberOfVertices = mesh.vertexCount;
             _meshFilter.mesh = mesh;
 
             _meshData.vertices.Dispose();
@@ -182,6 +193,7 @@ public class Chunk
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
 
+            numberOfVertices = mesh.vertexCount;
             _meshFilter.mesh = mesh;
 
             _treeBlocks.Dispose();

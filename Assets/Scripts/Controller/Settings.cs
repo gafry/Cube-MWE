@@ -9,6 +9,8 @@ public class Settings : MonoBehaviour
     [Header("World options")]
     public bool dayNightEfect = false;
     public bool loadWorld = false;
+    public int WorldRadius = 13;
+    public bool volumetricLightingOn = false;
 
     [Header("Ray tracing options")]
     public bool groundTruthIfThereIsNoMotion = false;
@@ -48,7 +50,9 @@ public class Settings : MonoBehaviour
     public Toggle ToggleWorldGen;
     public Toggle ToggleAlbedo;
     public Toggle ToggleSoftShadows;
+    public Toggle ToggleVolumetricLighting;
     public Slider SliderAO;
+    public Slider SliderWorldRadius;
     public Slider SliderStartCoef;
     public Slider SliderMinCoef;
     public Slider SliderAdaptCoef;
@@ -127,6 +131,11 @@ public class Settings : MonoBehaviour
         AO = (int)value;
     }
 
+    public void SetWorldRadius(float value)
+    {
+        WorldRadius = (int)value;
+    }
+
     public void SetDirectLighting(bool b)
     {
         directLightingOn = !directLightingOn;
@@ -172,6 +181,11 @@ public class Settings : MonoBehaviour
         softShadowsOn = !softShadowsOn;
     }
 
+    public void SetVolumetricLighting(bool b)
+    {
+        volumetricLightingOn = !volumetricLightingOn;
+    }
+
     private void Update()
     {
         if (Input.GetKeyDown("m"))
@@ -212,6 +226,8 @@ public class Settings : MonoBehaviour
         data.varianceOn = varianceOn;
         data.depthOfRecursion = depthOfRecursion;
         data.softShadowsOn = softShadowsOn;
+        data.worldRadius = WorldRadius;
+        data.volumetricLighting = volumetricLightingOn;
 
         string json = JsonUtility.ToJson(data, true);
         File.WriteAllText("./Assets/Options/Settings.json", json);
@@ -219,11 +235,14 @@ public class Settings : MonoBehaviour
 
     private void LoadFromFile()
     {
+        if (!File.Exists("./Assets/Options/Settings.json"))
+            return;
         string json = File.ReadAllText("./Assets/Options/Settings.json");
         SettingsData data = JsonUtility.FromJson<SettingsData>(json);
 
         AdaptCoef = data.AdaptCoef;
         AO = data.AO;
+        WorldRadius = data.worldRadius;
         combineAlbedoAndShadows = true;
         dayNightEfect = true;
         filteringOn = true;
@@ -236,11 +255,13 @@ public class Settings : MonoBehaviour
         varianceOn = true;
         depthOfRecursion = data.depthOfRecursion;
         softShadowsOn = true;
+        volumetricLightingOn = true;
 
         SliderAdaptCoef.value = AdaptCoef;
         SliderMinCoef.value = MinCoef;
         SliderStartCoef.value = StartCoef;
         SliderAO.value = AO;
+        SliderWorldRadius.value = WorldRadius;
         if (!data.combineAlbedoAndShadows)
             ToggleAlbedo.isOn = data.combineAlbedoAndShadows;
         if (!data.dayNightEfect)
@@ -259,5 +280,7 @@ public class Settings : MonoBehaviour
             ToggleWorldGen.isOn = data.loadWorld;
         if (!data.softShadowsOn)
             ToggleSoftShadows.isOn = data.softShadowsOn;
+        if (!data.volumetricLighting)
+            ToggleVolumetricLighting.isOn = data.volumetricLighting;
     }
 }

@@ -27,6 +27,7 @@ public class SceneManager : MonoBehaviour
     private int _chunkSize = 16;
     private int _chunkSizeHalf = 8;
     private int _radius = 13;
+    private int _prevRadius = 13;
     private Vector3Int _chunkWherePlayerStood;
 
     private NativeList<JobHandle> _jobHandles;
@@ -69,6 +70,9 @@ public class SceneManager : MonoBehaviour
         runningJobs = 0;
 
         chunks = new Dictionary<Vector3Int, Chunk>();
+
+        _radius = Settings.Instance.WorldRadius;
+        _prevRadius = _radius;
 
         centroids = new NativeList<Vector2>(Allocator.Persistent);
         centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
@@ -155,6 +159,8 @@ public class SceneManager : MonoBehaviour
 
             return;
         }
+        
+        _radius = Settings.Instance.WorldRadius;
 
         if (runningJobs > 0)
         {
@@ -167,7 +173,7 @@ public class SceneManager : MonoBehaviour
         _jobHandlesAlocated = true;
 
         Vector3Int chunkWherePlayerStands = ChunkWherePlayerStands();
-        if (!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) && phase == Phase.Resting)
+        if ((!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) || _prevRadius != _radius) && phase == Phase.Resting)
         {
             _chunkWherePlayerStood = chunkWherePlayerStands;
 
@@ -179,11 +185,16 @@ public class SceneManager : MonoBehaviour
                 _iter = _toGenerate.Count - 1;
                 phase = Phase.GeneratingBlocks;
             }
+            else if (_prevRadius != _radius)
+            {
+                phase = Phase.RemovingChunks;
+            }
             else
             {
                 phase = Phase.Resting;
             }
 
+            _prevRadius = _radius;
         }
         else if (phase == Phase.GeneratingBlocks)
         {
@@ -257,8 +268,7 @@ public class SceneManager : MonoBehaviour
         {
             int radiusInChunks = _chunkSize * _radius;
             RemoveChunks(chunkWherePlayerStands, radiusInChunks);
-            if (_iter < 0)
-                phase = Phase.Resting;
+            phase = Phase.Resting;
         }
         else
         {

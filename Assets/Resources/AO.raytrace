@@ -51,7 +51,7 @@ void AORaygenShader()
 	float ambientOcclusion = 1.0f;
 
 	// Our G-buffer stores 0 in worldPos.w for background pixels; only shoot an AO ray elsewhere
-	if (worldPos.w != 0.0f)
+	if (worldPos.w != 0.0f || worldPos.w < 100)
 	{
 		// Start accumulating from zero if we don't hit the background
 		ambientOcclusion = 0.0f;

@@ -1,0 +1,96 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel VolumetricLighting
+
+// Group size
+#define size_x 24
+#define size_y 24
+
+#define M_PI (3.14159265358979323846264338327950288)
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> GBufferNormalsAndMaterials;
+Texture2D<float4> ColorInput;
+RWTexture2D<float4> _OutputTarget;
+float3 LightPosition;
+float4x4 ViewProj;
+float CameraX;
+float CameraY;
+
+inline float2 ClipSpaceToTexturePosition(in float4 clipSpacePosition)
+{
+    float3 NDCposition = clipSpacePosition.xyz / clipSpacePosition.w;   // Perspective divide to get Normal Device Coordinates: {[-1,1], [-1,1], (0, 1]}
+    float2 texturePosition = (NDCposition.xy + 1) * 0.5f;               // [-1,1] -> [0, 1]
+    return texturePosition;
+}
+
+// Declare one thread for each texel of the current block size.
+[numthreads(size_x, size_y, 1)]
+void VolumetricLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    float4 color = ColorInput.Load(dispatchThreadId);
+
+    float4 ClipSpacePosition = mul(ViewProj, float4(LightPosition.xyz, 1));
+    float2 ScreenPositionNormalized = ClipSpaceToTexturePosition(ClipSpacePosition);
+    float2 ScreenPosition = ScreenPositionNormalized * float2(CameraX, CameraY);
+
+    bool expr = ScreenPosition.x < 0 || ScreenPosition.x >= CameraX || ScreenPosition.y < 0 || ScreenPosition >= CameraY;
+    if (expr)
+    {
+        _OutputTarget[dispatchThreadId.xy] = color;
+        return;
+    }
+
+    float decay = 0.96815f;
+    float exposure = 0.2f;
+    float density = 0.926f;
+    float weight = 0.58767f;
+    float illuminationDecay = 1.0f;
+    int NUM_SAMPLES = 100;
+
+    int2 tc = dispatchThreadId.xy;
+    int2 deltaTexCoord = dispatchThreadId.xy - ScreenPosition;
+    deltaTexCoord *= (1.0 / float(NUM_SAMPLES) * density) * float2(CameraX, CameraY);
+
+    for (int i = 0; i < NUM_SAMPLES; i++)
+    {
+        tc -= deltaTexCoord;
+        float material = GBufferNormalsAndMaterials.Load(int3(tc, 0)).w;
+        // Light is 2, should be 1 ... diffuse is 1, should be 0
+        material = max(0, material - 1);
+        float4 samplee = float4(material * 0.4, material * 0.4, material * 0.4, material * 0.4);
+        samplee *= illuminationDecay * weight;
+        color += samplee;
+        illuminationDecay *= decay;
+    }
+
+    //_OutputTarget[dispatchThreadId.xy] = float4(float3(color.xyz) * exposure, 1) + color;
+    _OutputTarget[dispatchThreadId.xy] = float4(float3(color.xyz) * exposure, 1) + color;
+
+    
+    /*float decay = 0.96815; \n"
+        "	float exposure = 0.2;\n"
+        "	float density = 0.926;\n"
+        "	float weight = 0.58767;\n"
+        "	float illuminationDecay = 1.0;\n"
+        "	int NUM_SAMPLES = 100;\n"
+
+        "	vec2 tc = TexCoords;\n"
+
+        "	vec2 deltaTexCoord = tc - lightPositionOnScreen.xy;\n"
+        "	deltaTexCoord *= 1.0 / float(NUM_SAMPLES) * density;\n"
+
+        "	vec4 color = vec4(0);\n"
+
+        "	for (int i = 0; i < NUM_SAMPLES; i++)\n"
+        "	{\n"
+        "		tc -= deltaTexCoord;"
+        "		vec4 samplee = texture2D(screenTexture, tc) * 0.4;\n"
+        "		samplee *= illuminationDecay * weight;\n"
+        "		color += samplee;\n"
+        "		illuminationDecay *= decay;\n"
+        "	}\n"
+
+        "	vec4 realColor = texture2D(coloredScreenTexture, TexCoords);\n"
+        "	FragColor = ((vec4((vec3(color.r, color.g, color.b) * exposure), 1)) + (realColor*(1.1)));*/
+}

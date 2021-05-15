@@ -1,6 +1,5 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel ATrous
-#pragma kernel ATrousWithIndirect
 
 // Group size
 #define size_x 24
@@ -24,6 +23,10 @@ float AdaptCoef;
 float StartCoef;
 float _CameraFarDistance;
 int WithIndirectOn;
+int DirectLightingOn;
+int IndirectLightingOn;
+int KernelSizeX;
+int KernelSizeY;
 
 static const float aTrousFilter3x3[3][3] =
 {
@@ -106,7 +109,6 @@ void ATrousIxISky(uint3 dispatchThreadId, float3 positionValue, float4 shadowVal
     }
 
     float3 sum = float4(0, 0, 0, 0);
-    float3 normalValue = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;    
 
     float cumW = 0.0f;
     int i = (size - 1) / 2;
@@ -118,7 +120,7 @@ void ATrousIxISky(uint3 dispatchThreadId, float3 positionValue, float4 shadowVal
 
             float materialTmp = GBufferNormalsAndMaterials.Load(uv).w;
 
-            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY || (materialTmp != 0 || materialTmp != 2))
+            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY || material == 1)
                 continue;
 
             float3 shadowTmp = ShadowInput.Load(uv).xyz;
@@ -197,88 +199,6 @@ float4 ATrousIxI(uint3 dispatchThreadId, float3 positionValue, float4 shadowValu
     return float4(sum / cumW, 1.0f);
 }
 
-void ATrousIxIWithIndirect(uint3 dispatchThreadId, float3 positionValue, float4 shadowValue, float4 indirectValue, int size)
-{
-    //float ShadowPhi = 1 / Iteration * AdaptCoef;
-    /*float PositionPhi = 1 / float(1 << Iteration) * 0.005f;
-    float NormalPhi = 1 / float(1 << Iteration) * 1e-2f;*/
-    float ShadowPhi = 1.0;
-    float PositionPhi = 0.3;
-    float NormalPhi = 0.5;
-
-    float3 sum = float4(0, 0, 0, 0);
-    float3 sumIndirect = float4(0, 0, 0, 0);
-    float3 normalValue = GBufferNormalsAndMaterials.Load(dispatchThreadId).xyz;
-
-    float cumW = 0.0f;
-    float cumWIndirect = 0.0f;
-    float shadowW = 0.0f;
-    float indirectW = 0.0f;
-    float normalW = 0.0f;
-    float positionW = 0.0f;
-    float3 t = 0.0f;
-    float distance = 0.0f;
-    int i = (size - 1) / 2;
-    for (int x = -i; x <= i; x++)
-    {
-        for (int y = -i; y <= i; y++)
-        {
-            int3 uv = dispatchThreadId + int3(x, y, 0) * StepWidth;
-
-            if (uv.x < 0 || uv.x >= CameraX || uv.y < 0 || uv.y >= CameraY)
-                continue;
-
-            // Position
-            float3 positionTmp = GBufferPositionsAndDepth.Load(uv).xyz;
-            if (WorldPositionEdgeStopping(positionValue, positionTmp, StepWidth))
-                continue;
-
-            // normal
-            /*float3 normalTmp = GBufferNormals.Load(uv).xyz;
-            normalW = NormalEdgeStopping(float3(normalValue.xyz), normalTmp);*/
-            float3 normalTmp = GBufferNormalsAndMaterials.Load(uv).xyz;
-            t = normalValue - normalTmp;
-            distance = max(dot(t, t), 0.0f);
-            normalW = min(exp(-(distance) / NormalPhi), 1.0f);
-            if (distance > 0.8 || normalW == 0)
-                continue;
-
-            // shadow
-            float3 shadowTmp = ShadowInput.Load(uv).xyz;
-            //t = abs(shadowValue.xyz - shadowTmp);
-            distance = dot(shadowValue, shadowTmp);
-            shadowW = min(exp(-(distance) / ShadowPhi), 1.0f);
-            //shadowW = exp(0.0f - (distance / (4.f * sqrt(HistoryBuffer.Load(dispatchThreadId).x) + 1e-10f)));
-
-            // indirect
-            float3 indirectTmp = IndirectBuffer.Load(uv).xyz;
-            //t = abs(indirectValue.xyz - indirectTmp);
-            distance = dot(indirectValue, indirectTmp);
-            indirectW = min(exp(-(distance) / ShadowPhi), 1.0f);
-
-            float weightedKernel;
-            float weightedKernelIndirect;
-            if (size == 3)
-            {
-                weightedKernel = shadowW * normalW * aTrousFilter3x3[x + i][y + i];
-                weightedKernelIndirect = indirectW * normalW * aTrousFilter3x3[x + i][y + i];
-            }
-            else
-            {
-                weightedKernel = shadowW * normalW * aTrousFilter5x5[x + i][y + i];
-                weightedKernelIndirect = indirectW * normalW * aTrousFilter5x5[x + i][y + i];
-            }
-            sum += shadowTmp * weightedKernel;
-            sumIndirect += indirectTmp * weightedKernel;
-            cumW += weightedKernel;
-            cumWIndirect += weightedKernelIndirect;
-        }
-    }
-
-    _OutputTarget[dispatchThreadId.xy] = float4(sum / cumW, 1.0f);
-    _OutputTarget2[dispatchThreadId.xy] = float4(sumIndirect / cumWIndirect, 1.0f);
-}
-
 [numthreads(size_x, size_y, 1)]
 void ATrous(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -288,68 +208,28 @@ void ATrous(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (positionValue.w == 0.f)
     {
-        if (WithIndirectOn < 0.5f && Iteration < 5)
+        if (Iteration < 3)
         {
             ATrousIxISky(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
         }
         else
-            _OutputTarget[dispatchThreadId.xy] = float4(1, 1, 1, 1);
+            _OutputTarget[dispatchThreadId.xy] = shadowValue;
     }
-    //else if (varianceValue.x <= 0.05595371872186661f && Iteration > 2 && Variance)
-    else if (((varianceValue.x <= 0.11f && WithIndirectOn < 0.5f)/* || (varianceValue.y <= AdaptCoef && WithIndirectOn > 0.5f)*/) && Iteration > 2 && Variance)
+    else if (((varianceValue.x <= 0.007208704482764006f && IndirectLightingOn > 0.5f)) && Iteration >= 1 && Variance)
     {
         _OutputTarget[dispatchThreadId.xy] = shadowValue;
+        //_OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    }
+    else if (((varianceValue.x <= 0.0046698786318302158f && IndirectLightingOn < 0.5f)) && Iteration >= 1 && Variance)
+    {
+        _OutputTarget[dispatchThreadId.xy] = shadowValue;
+        //_OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
+    }
+    else if (IndirectLightingOn < 0.5f && Iteration > 4)
+    {
+        _OutputTarget[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), shadowValue, 3);
     }
     else
-    {
-        _OutputTarget[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
-    }
-}
-
-[numthreads(size_x, size_y, 1)]
-void ATrousWithIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
-{
-    float4 shadowValue = ShadowInput.Load(dispatchThreadId);
-    float4 positionValue = GBufferPositionsAndDepth.Load(dispatchThreadId);
-    float4 varianceValue = VarianceBuffer.Load(dispatchThreadId);
-    float4 indirectValue = IndirectBuffer.Load(dispatchThreadId);
-    bool direct = false;
-    bool indirect = false;
-
-    if (positionValue.w == 0.f)
-    {
-        if (Iteration < 2)
-            ATrousIxISky(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
-        else
-            _OutputTarget[dispatchThreadId.xy] = float4(1, 1, 1, 1);
-        _OutputTarget2[dispatchThreadId.xy] = float4(1, 1, 1, 1);
-        return;
-    }
-
-    // Variance check for direct
-    if (varianceValue.x <= 0.11f && Iteration > 2 && Variance)
-    {
-        _OutputTarget[dispatchThreadId.xy] = shadowValue;
-        direct = true;
-    }
-
-    // Variance check for indirect
-    /*if (varianceValue.y <= AdaptCoef && Iteration > 2 && Variance)
-    {
-        _OutputTarget[dispatchThreadId.xy] = indirectValue;
-        indirect = true;
-    }*/
-
-    // Filter rest
-    if (!direct && !indirect)
-    {        
-        ATrousIxIWithIndirect(dispatchThreadId, float3(positionValue.xyz), shadowValue, indirectValue, 5);
-    }
-    else if (direct && !indirect)
-    {
-        _OutputTarget2[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), indirectValue, 5);
-    }
-    else if (!direct && indirect)
     {
         _OutputTarget[dispatchThreadId.xy] = ATrousIxI(dispatchThreadId, float3(positionValue.xyz), shadowValue, 5);
     }
