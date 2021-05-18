@@ -7,28 +7,25 @@ Texture2D<float4> GBufferNormalsAndMaterials;
 Texture2D<float4> GBufferPositionsAndDepth;
 // Output
 RWTexture2D<float4> _OutputTarget;
-int _NumberOfSamples = 1;
-int _FrameIndex;
 int _FrameCounter;
 float AOCoef;
 
-// A wrapper function that encapsulates shooting an ambient occlusion ray query
 float shootAmbientOcclusionRay( float3 orig, float3 dir, float minT, float maxT )
 {
 	// Setup ambient occlusion ray and payload
-	RayPayloadAO rayPayloadAO = { 0.0f };  // Specified value is returned if we hit a surface
+	RayPayloadAO rayPayloadAO = { 0.0f };
 	RayDesc rayDescriptor;
-	rayDescriptor.Origin    = orig;               // Where does our ray start?
-	rayDescriptor.Direction = dir;                // What direction does our ray go?
-	rayDescriptor.TMin      = minT;               // Min distance to detect an intersection
-	rayDescriptor.TMax      = maxT;               // Max distance to detect an intersection
+	rayDescriptor.Origin    = orig;
+	rayDescriptor.Direction = dir;  
+	rayDescriptor.TMin      = minT;
+	rayDescriptor.TMax      = maxT;             
 
-	// Trace our ray.  Ray stops after it's first definite hit; never execute closest hit shader
+	// Trace ray
 	TraceRay(_AccelerationStructure,
 		RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
 		0xFF, 0, 1, 0, rayDescriptor, rayPayloadAO);
 
-	// Copy our AO value out of the ray payload.
+	// Return payload
 	return rayPayloadAO.AOValue;
 }
 
@@ -38,6 +35,7 @@ void AORaygenShader()
 	const uint2 dispatchIdx = DispatchRaysIndex().xy;
 	const uint2 dispatchDim = DispatchRaysDimensions();
 
+	// Get random seed based on frame counter
 	uint randSeed = initRand(dispatchIdx.x + dispatchIdx.y * dispatchDim.x, _FrameCounter, 16);
 
 	// Load the position and normal from our g-buffer
@@ -51,7 +49,7 @@ void AORaygenShader()
 	float ambientOcclusion = 1.0f;
 
 	// Our G-buffer stores 0 in worldPos.w for background pixels; only shoot an AO ray elsewhere
-	if (worldPos.w != 0.0f || worldPos.w < 100)
+	if (worldPos.w != 0.0f || worldPos.w < 0.5f)
 	{
 		// Start accumulating from zero if we don't hit the background
 		ambientOcclusion = 0.0f;
@@ -76,13 +74,6 @@ void AORaygenShader()
 	float ResultAO = ambientOcclusion / float(numberOfRays);
 	float4 color = float4(ResultAO, ResultAO, ResultAO, 1.0f);
 
-	if (_FrameIndex > 1)
-	{
-		float a = 1.0f / (float)_FrameIndex;
-		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
-	}
-
-	//_OutputTarget[dispatchIdx] = float4(ResultAO, ResultAO, ResultAO, 1.0f);
 	_OutputTarget[dispatchIdx] = color;
 }
 

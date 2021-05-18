@@ -12,13 +12,9 @@ Texture2D<float4> ColorInput;
 RWTexture2D<float4> _OutputTarget;
 RWTexture2D<float4> _OutputTarget2;
 // Variables
-int _FrameIndex;
 int _FrameCounter;
-int _DepthOfRecursion;
 float3 LightPosition;
 float LightProgress;
-float StartCoef;
-
 int SoftShadowsOn;
 int IndirectLightingOn;
 int DirectLightingOn;
@@ -96,29 +92,13 @@ void DirectAndIndirectRaygenShader()
 	{
 		direct = min(max(0.f, (direct / numOfIters)), 0.8f);
 		float4 shadow = float4(direct, direct, direct, 1);
-		//_OutputTarget[dispatchIdx] = float4(ColorInput[dispatchIdx].xyz, 1) * shadow;
-		_OutputTarget[dispatchIdx] = shadow;//max(shadow, 0.05f);
-		//_OutputTarget[dispatchIdx] = float4(ColorInput[dispatchIdx].xyz, 1) * (float4(indirect / numOfIters, 1) + color);
+		_OutputTarget[dispatchIdx] = shadow;
 	}
 
 	if (IndirectLightingOn > 0)
 	{
-		//float pdf = 1 / (2 * M_PI);
-		//_OutputTarget2[dispatchIdx] = float4(indirect / numOfIters, 1);
-		//indirect /= numOfIters;
 		_OutputTarget2[dispatchIdx] = 0.3f * float4(indirect / numOfIters, 1);
 	}
-
-	/*if (DirectLightingOn > 0 && IndirectLightingOn > 0)
-	{
-		_OutputTarget[dispatchIdx] = _OutputTarget[dispatchIdx] / M_PI + 2 * _OutputTarget2[dispatchIdx];
-	}*/
-
-	/*if (_FrameIndex > 1)
-	{
-		float a = 1.0f / (float)_FrameIndex;
-		color = _OutputTarget[dispatchIdx] * (1.0f - a) + color * a;
-	}*/
 }
 
 [shader("miss")]
@@ -127,11 +107,11 @@ void MissShader(inout RayPayload rayPayload : SV_RayPayload)
 	float3 origin = WorldRayOrigin();
 	float3 direction = WorldRayDirection();
 	rayPayload.color = 0.5f * float4(BackgroundColor(origin, direction, LightProgress), 1.0f);
-	//rayPayload.color = float4(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 [shader("miss")]
-void ShadowMiss(inout RayPayloadShadow shadowRayPayload : SV_RayPayload) {
+void ShadowMiss(inout RayPayloadShadow shadowRayPayload : SV_RayPayload) 
+{
     shadowRayPayload.visibility = 1.0f;
 }
 

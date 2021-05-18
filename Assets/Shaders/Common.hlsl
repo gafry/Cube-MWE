@@ -1,3 +1,5 @@
+// Utils for shaders
+
 #include "UnityRaytracingMeshUtils.cginc"
 
 #define M_PI (3.14159265358979323846264338327950288)
@@ -82,38 +84,35 @@ float3 ONBLocal(inout ONB onb, float3 dir)
 
 inline float3 BackgroundColor(float3 origin, float3 direction, float LightProgress)
 {
-	/*float3 lightPos = LightPosition + float3(0, -50, -50);
-	float3 normLightVector = normalize(float3(0, 0, 0) - lightPos);
-	float distToLight = distance(origin, lightPos);
-	float3 normMissVector = normalize(float3(0, 0, 0) - (distToLight * direction));
-	float dist = distance(normLightVector, normMissVector);
-	float t = (dist - 0.03f) / (2 - 0.03f);
-
-	if (t < 0.03)
-		return float3(1.0f, 1.0f, 1.0f);
+	float multiplier;
+	// t -> [0,1]
+	float t = 0.5f * (direction.y + 1.0f);
+	//return ((1.0f - t) * float3(1.0f, 0.5f, 0.0f) + t * float3(0.5f, 0.7f, 1.0f));// *multiplier;
+	if (LightProgress < 0.15f || LightProgress > 0.85f)
+		return ((1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f));
+	else if (LightProgress < 0.25f)
+	{
+		float s = (LightProgress - 0.15f) / (0.25f - 0.15f);
+		multiplier = (LightProgress - 0.15f) / (0.35f - 0.15f);
+		return ((1.0f - t) * lerp(float3(1.0f, 1.0f, 1.0f), float3(1.0f, 0.5f, 0.0f), s) + t * float3(0.5f, 0.7f, 1.0f)) * (1 - multiplier);
+	}
+	else if (LightProgress < 0.35f)
+	{
+		multiplier = (LightProgress - 0.15f) / (0.35f - 0.15f);
+		return ((1.0f - t) * float3(1.0f, 0.5f, 0.0f) + t * float3(0.5f, 0.7f, 1.0f)) * max(0.07f, (1 - multiplier));
+	}
+	else if (LightProgress < 0.60f)
+		return ((1.0f - t) * float3(1.0f, 0.5f, 0.0f) + t * float3(0.5f, 0.7f, 1.0f)) * 0.07f;
+	else if (LightProgress < 0.65f)
+	{
+		float s = (LightProgress - 0.60f) / (0.65f - 0.60f);
+		return ((1.0f - t) * lerp(float3(1.0f, 0.5f, 0.0f), float3(1.0f, 1.0f, 1.0f), s) + t * float3(0.5f, 0.7f, 1.0f)) * 0.07f;
+	}
 	else
 	{
-		return (1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.0f, 0.0f, 0.0f);
-	}*/
-
-	float multiplier;
-	float nightValue = 0.05f;
-	float dayValue = 0.85f;
-	float nightProgress = 0.6f;
-	float dayProgress = 0.4f;
-	if (LightProgress < 0.5f)
-		multiplier = LightProgress * 2;
-	else
-		multiplier = (1.f - LightProgress) * 2;
-
-	if (LightProgress >= dayProgress && LightProgress <= nightProgress) multiplier = nightValue;
-	else if (LightProgress > nightProgress) multiplier = nightValue + ((dayValue - nightValue) / (1.0f - nightProgress)) * (LightProgress - nightProgress);
-	else if (LightProgress < dayProgress) multiplier = dayValue - (nightValue + ((dayValue - nightValue) / (dayProgress - 0.0f)) * (LightProgress - 0.0f)) + nightValue;
-	multiplier = min(0.55f, multiplier);
-	//output = output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start)
-
-	float t = 0.5f * (direction.y + 1.0f);
-	return ((1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * multiplier;
+		multiplier = (LightProgress - 0.65f) / (0.85f - 0.65f);
+		return ((1.0f - t) * float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * max(0.07f, multiplier);
+	}
 }
 
 // Generates a seed for a random number generator from 2 inputs plus a backoff
@@ -149,8 +148,7 @@ float3 GetRandomCosineDir(uint seed)
 	return float3(x, y, z);
 }
 
-// Utility function to get a vector perpendicular to an input vector 
-//    (from "Efficient Construction of Perpendicular Vectors Without Branching")
+// Function to get a vector perpendicular to an input vector 
 float3 getPerpendicularVector(float3 u)
 {
 	float3 a = abs(u);

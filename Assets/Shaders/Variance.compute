@@ -1,37 +1,23 @@
-// Each #kernel tells which function to compile; you can have many kernels
+// Each #kernel tells which function to compile
 #pragma kernel EstimateVariance
 #pragma kernel EstimateVarianceIndirect
+#pragma kernel EstimateVarianceVertical
+#pragma kernel EstimateVarianceHorizontal
 
 // Group size
 #define size_x 24
 #define size_y 24
 
-// Create a RenderTexture with enableRandomWrite flag and set it
-// with cs.SetTexture
 Texture2D<float4> ShadowInput;
-Texture2D<float4> IndirectBuffer;
 RWTexture2D<float4> _OutputTarget;
+RWTexture2D<float4> _OutputTarget2;
 float CameraX;
 float CameraY;
-float StartCoef;
-float AdaptCoef;
 int IndirectLightingOn;
 
-static const float gaussianFilter5x5[5][5] =
-{
-    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 },
-    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
-    { 7.0 / 273.0, 26.0 / 273.0, 41.0 / 273.0, 26.0 / 273.0, 7.0 / 273.0 },
-    { 4.0 / 273.0, 16.0 / 273.0, 26.0 / 273.0, 16.0 / 273.0, 4.0 / 273.0 },
-    { 1.0 / 273.0, 4.0 / 273.0, 7.0 / 273.0, 4.0 / 273.0, 1.0 / 273.0 }
-};
-
-static const float gaussianFilter[3][3] =
-{
-    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 },
-    { 1.0 / 8.0,  1.0 / 4.0, 1.0 / 8.0  },
-    { 1.0 / 16.0, 1.0 / 8.0, 1.0 / 16.0 }
-};
+groupshared float3 horizontalPoints[960];
+groupshared float3 verticalPointsSum[540];
+groupshared float3 verticalPointsSum_2[540];
 
 [numthreads(size_x, size_y, 1)]
 void EstimateVariance(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -107,4 +93,108 @@ void EstimateVarianceIndirect(uint3 dispatchThreadId : SV_DispatchThreadID)
     float variance = sqrt(tmp.x * tmp.x + tmp.y * tmp.y + tmp.z * tmp.z);
 
     _OutputTarget[dispatchThreadId.xy] = float4(variance, variance, variance, 1);
+}
+
+[numthreads(960, 1, 1)]
+void EstimateVarianceHorizontal(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    // Load data from texture
+    float3 data = ShadowInput.Load(dispatchThreadId).xyz;
+
+    // Save to shared memory
+    horizontalPoints[dispatchThreadId.x] = data;
+
+    // Sync threads
+    GroupMemoryBarrierWithGroupSync();
+
+    float3 sum = 0.0f;
+    float3 sum_2 = 0.0f;
+    float3 y_i;
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x - 3, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x - 2, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x - 1, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = data;
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x + 1, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x + 2, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    y_i = horizontalPoints[min(max(dispatchThreadId.x + 3, 0), 960)];
+    sum += y_i;
+    sum_2 = (y_i * y_i);
+
+    _OutputTarget[dispatchThreadId.xy] = float4(0, sum.x, sum.y, sum.z);
+    _OutputTarget2[dispatchThreadId.xy] = float4(0, sum_2.x, sum_2.y, sum_2.z);
+}
+
+[numthreads(1, 540, 1)]
+void EstimateVarianceVertical(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    // Load data from texture
+    float4 data_2 = ShadowInput.Load(dispatchThreadId);
+    float4 data = _OutputTarget.Load(dispatchThreadId);
+
+    // Save to shared memory
+    verticalPointsSum_2[dispatchThreadId.y] = float3(data_2.y, data_2.z, data_2.w);
+    verticalPointsSum[dispatchThreadId.y] = float3(data.y, data.z, data.w);
+
+    // Sync threads
+    GroupMemoryBarrierWithGroupSync();
+
+    float3 sum = 0.0f;
+    float3 sum_2 = 0.0f;
+    uint n = 0;
+    float3 y_i;
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y - 3, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y - 3, 0), 540)];
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y - 2, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y - 2, 0), 540)];
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y - 1, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y - 1, 0), 540)];
+
+    sum += data;
+    sum_2 = data_2;
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y + 1, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y + 1, 0), 540)];
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y + 2, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y + 2, 0), 540)];
+
+    sum += verticalPointsSum[min(max(dispatchThreadId.y + 3, 0), 540)];
+    sum_2 = verticalPointsSum_2[min(max(dispatchThreadId.y + 3, 0), 540)];
+
+    n = 49;
+    float invN = 1.0f / max(1, n);
+    float mean = sum * invN;
+    float besselCorrection = n / max(1, n - 1);
+
+    float3 tmp;
+    if (IndirectLightingOn > 0.5f)
+        tmp = (invN * sum_2 - mean * mean) * besselCorrection;
+    else 
+        tmp = (invN * sum - mean * mean) * besselCorrection;
+    tmp = float3(max(0, tmp.x), max(0, tmp.y), max(0, tmp.z));
+    float variance = sqrt(tmp.x * tmp.x + tmp.y * tmp.y + tmp.z * tmp.z);
+
+    _OutputTarget[dispatchThreadId.xy] = float4(variance, data.y, data.z, data.w);
 }

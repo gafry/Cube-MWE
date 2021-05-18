@@ -74,6 +74,7 @@ public class SceneManager : MonoBehaviour
         _radius = Settings.Instance.WorldRadius;
         _prevRadius = _radius;
 
+        // generate centroids for bioms
         centroids = new NativeList<Vector2>(Allocator.Persistent);
         centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
         centroids.Add(new Vector2(Random.Range(-300, 300), Random.Range(-300, 300)));
@@ -144,8 +145,6 @@ public class SceneManager : MonoBehaviour
         }
     }
 
-    // Update is called once per frame
-    //void Update()
     public void Update()
     {
         // if loading world is not enabled, build AS and return
@@ -172,6 +171,7 @@ public class SceneManager : MonoBehaviour
         _jobHandles = new NativeList<JobHandle>(Allocator.Persistent);
         _jobHandlesAlocated = true;
 
+        // If camera moved to another chunk, generate new chunks in multiple phases
         Vector3Int chunkWherePlayerStands = ChunkWherePlayerStands();
         if ((!chunkWherePlayerStands.Equals(_chunkWherePlayerStood) || _prevRadius != _radius) && phase == Phase.Resting)
         {
@@ -275,10 +275,9 @@ public class SceneManager : MonoBehaviour
             phase = Phase.Resting;
         }
 
+        // Update sun transform and build AS
         if (_accelerationStructure != null)
         {
-            //_accelerationStructure.RemoveInstance(sun.GetComponent<Renderer>());
-            //_accelerationStructure.AddInstance(sun.GetComponent<Renderer>(), null, null, true, false, 0x10);
             _accelerationStructure.UpdateInstanceTransform(sun.GetComponent<Renderer>());
             _accelerationStructure.Build();
         }
@@ -421,7 +420,7 @@ public class SceneManager : MonoBehaviour
         {
             if (r.CompareTag("Light"))
             {
-                // mask for lights is 0x10 (for shadow rays - dont want to check intersection)
+                // mask for lights is 0x10 (for shadow rays - dont want to check for intersection in some cases)
                 _accelerationStructure.AddInstance(r, null, null, true, false, 0x10);
             }
             else

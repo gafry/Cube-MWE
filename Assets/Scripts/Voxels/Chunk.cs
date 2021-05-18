@@ -33,6 +33,7 @@ public class Chunk
         _material = material;
     }
 
+    // Alloc data for generateBlocksJob and schedule it
     public JobHandle GenerateBlocks(NativeList<Vector2> Centroids)
     {
         _chunkData = new GenerateBlocksJob.ChunkData
@@ -54,6 +55,7 @@ public class Chunk
         return jobHandle;
     }
 
+    // Alloc data for chunkJob and schedule it
     public JobHandle GenerateMeshData()
     {
         _meshData = new GenerateMeshData.MeshData
@@ -83,6 +85,7 @@ public class Chunk
         return _jobHandle;
     }
 
+    // Create renderer and mesh filter
     public void PrepareMesh()
     {
         MeshRenderer renderer = chunk.gameObject.AddComponent(typeof(MeshRenderer)) as MeshRenderer;
@@ -109,6 +112,7 @@ public class Chunk
             return false;
     }
 
+    // Alloc data for generateTreesJob and schedule it
     public JobHandle GenerateTrees()
     {
         _treesMeshData = new GenerateTreesJob.MeshData
@@ -153,6 +157,7 @@ public class Chunk
             return 0;
     }
 
+    // Fill mesh with vertices and triangles and uvs
     public int FinishCreatingChunk()
     {
         if (!AreTrees())

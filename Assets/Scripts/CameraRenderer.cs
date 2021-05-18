@@ -2,22 +2,20 @@
 using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
 using System.Collections.Generic;
-using UnityEngine.Profiling;
 
 public class CameraRenderer : MonoBehaviour
 {
+    // Ray tracing shaders
     private RayTracingShader _shader;
     private RayTracingShader _shaderGBuffer;
     private RayTracingShader _shaderAO;
-    private RayTracingShader _shaderLocalLights;
-    private RayTracingShader _shaderCubeLights;
 
+    // Compute shaders IDs
     private int _motionVectorKernelId;
     private int _reprojectionKernelId;
     private int _varianceKernelId;
     private int _blitKernelId;
     private int _filterKernelId;
-    private int _volumetricLightingKernelId;
 
     // Parametrs for camera shader
     private static class CameraShaderParams
@@ -27,14 +25,15 @@ public class CameraRenderer : MonoBehaviour
         public static readonly int _CameraFarDistance = Shader.PropertyToID("_CameraFarDistance");
     }
 
+    // View matrices for motion vector
     private static Matrix4x4 PrevViewProjMatrix = Matrix4x4.zero;
     private static Matrix4x4 ActViewProjMatrix = Matrix4x4.zero;
 
+    // Output target size
     private readonly Dictionary<int, Vector4> _outputTargetSizes = new Dictionary<int, Vector4>();
     protected readonly int _outputTargetSizeShaderId = Shader.PropertyToID("_OutputTargetSize");
 
-    private int _frameIndex = 0;
-    private readonly int _frameIndexShaderId = Shader.PropertyToID("_FrameIndex");
+    // Frame counter for random seed
     private int _frameCounter = 0;
     private readonly int _frameCounterShaderId = Shader.PropertyToID("_FrameCounter");
 
@@ -59,7 +58,7 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _AOBufferId = Shader.PropertyToID("AOBuffer");
     private readonly int _IndirectBufferId = Shader.PropertyToID("IndirectBuffer");
     private readonly int _DirectBufferId = Shader.PropertyToID("DirectBuffer");
-
+    // Other shader variables
     private readonly int _CameraXId = Shader.PropertyToID("CameraX");
     private readonly int _CameraYId = Shader.PropertyToID("CameraY");
     private readonly int _WithIDId = Shader.PropertyToID("WithID");
@@ -68,9 +67,6 @@ public class CameraRenderer : MonoBehaviour
     private readonly int _ViewProjId = Shader.PropertyToID("ViewProj");
     private readonly int _LastFrameId = Shader.PropertyToID("LastFrame");
     private readonly int _CurrentFrameId = Shader.PropertyToID("CurrentFrame");    
-    private readonly int _PrevIndirectBufferId = Shader.PropertyToID("PrevIndirectBuffer");
-    private readonly int _ReprojectedOutputId = Shader.PropertyToID("ReprojectedOutput");
-    private readonly int _ReprojectedOutputIndirectId = Shader.PropertyToID("ReprojectedOutputIndirect");
     private readonly int _VarianceBufferId = Shader.PropertyToID("VarianceBuffer");
     private readonly int _PrevGBufferNormalsAndMaterialsId = Shader.PropertyToID("PrevGBufferNormals");
     private readonly int _PrevGBufferPositionsAndDepthId = Shader.PropertyToID("PrevGBufferPosition");
@@ -98,20 +94,19 @@ public class CameraRenderer : MonoBehaviour
     public void Render(ScriptableRenderContext context, Camera camera, ComputeShader MotionVectorShader, ComputeShader ReprojectionShader,
                        ComputeShader BlitShader, ComputeShader FilterShader, ComputeShader VarianceShader, bool bAmbientOcclusion, 
                        bool bDirectLighting, bool bIndirectLighting, bool bReprojection, bool bVariance, bool bFiltering, bool bReprojectWithIDs,
-                       bool bCombineAlbedoAndShadows, bool bDayNightEfect, bool bSoftShadowsOn, ComputeShader VolumetricShader, bool bVolumetricLighting)
+                       bool bCombineAlbedoAndShadows, bool bSoftShadowsOn)
     {
         // Load shaders data
         _shader = Resources.Load<RayTracingShader>("RayTrace");
         _shaderGBuffer = Resources.Load<RayTracingShader>("GBuffer");
         _shaderAO = Resources.Load<RayTracingShader>("AO");
-        //Debug.Log(Settings.Instance.directLightingOn + " " + Settings.Instance.indirectLightingOn + " " + Settings.Instance.combineAlbedoAndShadows + " " 
-        //    + Settings.Instance.AO + " " + Settings.Instance.reprojectionOn + " " + Settings.Instance.varianceOn + " " + Settings.Instance.filteringOn);
         // Set camera variables
         SetupCamera(camera);
 
         // Request acceleration structure from scene manager
         var accelerationStructure = SceneManager.Instance.RequestAccelerationStructure();
 
+        // Size of camera
         var outputTargetSize = RequireOutputTargetSize(camera);
 
         // Request buffers
@@ -132,6 +127,7 @@ public class CameraRenderer : MonoBehaviour
         // SVGF buffers
         var reprojectedDirectBuffer = RequireBuffer(camera, "reprojectedDirectBuffer");
         var varianceBuffer = RequireBuffer(camera, "varianceBuffer");        
+        var varianceBuffer2 = RequireBuffer(camera, "varianceBuffer2");
         var blitBuffer = RequireBuffer(camera, "blitBuffer");
         var filterDirectBuffer = RequireBuffer(camera, "filterDirectBuffer");
 
@@ -145,10 +141,6 @@ public class CameraRenderer : MonoBehaviour
             // increase frame index (for ground truth) and frame counter (for randomness)
             // comment else statement to disable ground truth
             _frameCounter++;
-            if (Settings.Instance.cameraMoved)
-                _frameIndex = 1;
-            else if (Settings.Instance.groundTruthIfThereIsNoMotion)
-                _frameIndex++;
 
             // set global shader variables
             if (bIndirectLighting)
@@ -177,8 +169,6 @@ public class CameraRenderer : MonoBehaviour
 
             // get GBuffer - normals, world positions, IDs. material, depth, albedo and motion vector
             {
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Normals, Albedo and World Positions")))
-                //{
                 cmd.BeginSample("GBuffer");
                     cmd.SetRayTracingShaderPass(_shaderGBuffer, "GBuffer");
                     cmd.SetRayTracingAccelerationStructure(_shaderGBuffer, _accelerationStructureShaderId, accelerationStructure);
@@ -187,19 +177,13 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _outputTarget3ShaderId, gBufferAlbedo);
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _outputTarget4ShaderId, gBufferMotionAndIDs);
                     cmd.SetRayTracingTextureParam(_shaderGBuffer, _MaterialsId, _materials);
-                    //if (bDayNightEfect)
-                        //cmd.SetRayTracingVectorParam(_shaderGBuffer, _LightPositionId, SceneManager.Instance.GetSunPosition());
-                    /*else
-                        cmd.SetRayTracingVectorParam(_shaderGBuffer, _LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));*/
                     cmd.SetRayTracingFloatParam(_shaderGBuffer, _LightProgressId, SceneManager.Instance.GetSunProgress());
                     cmd.DispatchRays(_shaderGBuffer, "GBufferRaygenShader", (uint)gBufferNormalsAndMaterials.rt.width, (uint)gBufferNormalsAndMaterials.rt.height, 1, camera);
-                //}
                 cmd.EndSample("GBuffer");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
 
                 cmd.BeginSample("Motion Vector");
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Motion Vector")))
                 {
                     _motionVectorKernelId = MotionVectorShader.FindKernel("MotionVector");
                     cmd.SetComputeTextureParam(MotionVectorShader, _motionVectorKernelId, _GBufferPositionsAndDepthId, gBufferWorldPositionsAndDepth);
@@ -228,9 +212,8 @@ public class CameraRenderer : MonoBehaviour
             // Ray tracing pass for direct and indirect lighting
             if (bDirectLighting || bIndirectLighting)
             {
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Direct and indirect lighting")))
-                //{
                 cmd.BeginSample("RayTrace");
+                {
                     // Acceleration structure and pass
                     cmd.SetRayTracingShaderPass(_shader, "DirectAndIndirectLighting");
                     cmd.SetRayTracingAccelerationStructure(_shader, _accelerationStructureShaderId, accelerationStructure);
@@ -240,19 +223,8 @@ public class CameraRenderer : MonoBehaviour
                     // Shadow buffers
                     cmd.SetRayTracingTextureParam(_shader, _outputTargetShaderId, directLightBuffer);
                     cmd.SetRayTracingTextureParam(_shader, _outputTarget2ShaderId, indirectLightBuffer);
-                    // Sun and day/night
-                    /*if (Settings.Instance.dayNightEfect)
-                        cmd.SetRayTracingVectorParam(_shader, _LightPositionId, SceneManager.Instance.GetSunPosition());
-                    else
-                        cmd.SetRayTracingVectorParam(_shader, _LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));*/
-                    //if (bDayNightEfect)
-                        //cmd.SetGlobalVector(_LightPositionId, SceneManager.Instance.GetSunPosition());
-                    /*else
-                        cmd.SetGlobalVector(_LightPositionId, new Vector3(530.0f, 500.0f, 370.0f));*/
                     // Variables
-                    cmd.SetRayTracingIntParam(_shader, _frameIndexShaderId, _frameIndex);
                     cmd.SetRayTracingIntParam(_shader, _frameCounterShaderId, _frameCounter);
-                    cmd.SetRayTracingIntParam(_shader, _depthOfRecursionShaderId, Settings.Instance.depthOfRecursion);
                     cmd.SetRayTracingFloatParam(_shader, _LightProgressId, SceneManager.Instance.GetSunProgress());
                     if (bSoftShadowsOn)
                         cmd.SetRayTracingIntParam(_shader, _SoftShadowsOnId, 1);
@@ -261,7 +233,7 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetRayTracingTextureParam(_shader, _ColorInputId, gBufferAlbedo);
                     // Dispatch
                     cmd.DispatchRays(_shader, "DirectAndIndirectRaygenShader", (uint)directLightBuffer.rt.width, (uint)directLightBuffer.rt.height, 1, camera);
-                //}
+                }
                 cmd.EndSample("RayTrace");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();                
@@ -270,7 +242,7 @@ public class CameraRenderer : MonoBehaviour
             // Ambient oclussion pass
             if (bAmbientOcclusion)
             {
-                using (new ProfilingScope(cmd, new ProfilingSampler("AmbientOcclusion")))
+                cmd.BeginSample("Ambient Occlusion");
                 {
                     // Acceleration structure and pass
                     cmd.SetRayTracingShaderPass(_shaderAO, "AO");
@@ -281,13 +253,12 @@ public class CameraRenderer : MonoBehaviour
                     // Output
                     cmd.SetRayTracingTextureParam(_shaderAO, _outputTargetShaderId, ambientOcclusionBuffer);
                     // Variables
-                    cmd.SetRayTracingIntParam(_shaderAO, _frameIndexShaderId, _frameIndex);
                     cmd.SetRayTracingIntParam(_shaderAO, _frameCounterShaderId, _frameCounter);
                     cmd.SetRayTracingFloatParam(_shaderAO, _AOCoefId, Mathf.Max(1, Settings.Instance.AO));
                     // Dispatch
                     cmd.DispatchRays(_shaderAO, "AORaygenShader", (uint)ambientOcclusionBuffer.rt.width, (uint)ambientOcclusionBuffer.rt.height, 1, camera);
                 }
-
+                cmd.EndSample("Ambient Occlusion");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
@@ -295,8 +266,7 @@ public class CameraRenderer : MonoBehaviour
             // Combine shadows
             {
                 cmd.BeginSample("CombineShadows");
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Combine shadows and AO")))
-                //{
+                {
                     _blitKernelId = BlitShader.FindKernel("BlitShadows");
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _AOBufferId, ambientOcclusionBuffer);
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _DirectBufferId, directLightBuffer);
@@ -305,7 +275,7 @@ public class CameraRenderer : MonoBehaviour
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _BlitOutputId, blitBuffer);
                     cmd.DispatchCompute(BlitShader, _blitKernelId, blitBuffer.rt.width / kernelSize, blitBuffer.rt.height / kernelSize, 1);
                     cmd.Blit(blitBuffer, directLightBuffer);
-                //}
+                }
                 cmd.EndSample("CombineShadows");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
@@ -315,35 +285,8 @@ public class CameraRenderer : MonoBehaviour
             if (bReprojection)
             {
                 cmd.BeginSample("Reprojection");
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Reprojection")))
                 {
-                    // Set buffers with shadows (based on settings)
-                    /*if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion))
-                    {
-                        _reprojectionKernelId = ReprojectionShader.FindKernel("ReprojectionWithIndirect");                        
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, directLightBuffer);
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _IndirectBufferId, indirectLightBuffer);
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevDirectLightBuffer);
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _PrevIndirectBufferId, prevIndirectLightBuffer);
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _outputTargetShaderId, reprojectedDirectBuffer);
-                        cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _outputTarget2ShaderId, reprojectedIndirectBuffer);
-                    }
-                    else
-                    {
-                        _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
-                        if (bIndirectLighting)
-                        {
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, indirectLightBuffer);
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevIndirectLightBuffer);
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _outputTargetShaderId, reprojectedIndirectBuffer);
-                        }
-                        else
-                        {
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, directLightBuffer);
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevDirectLightBuffer);
-                            cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _outputTargetShaderId, reprojectedDirectBuffer);
-                        }
-                    }*/
+                    // Set buffers with shadows and kernel
                     _reprojectionKernelId = ReprojectionShader.FindKernel("Reprojection");
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _CurrentFrameId, directLightBuffer);
                     cmd.SetComputeTextureParam(ReprojectionShader, _reprojectionKernelId, _LastFrameId, prevDirectLightBuffer);
@@ -365,8 +308,6 @@ public class CameraRenderer : MonoBehaviour
                     cmd.Blit(gBufferNormalsAndMaterials, prevGBufferNormalsAndMaterials);
                     cmd.Blit(gBufferMotionAndIDs, prevGBufferMotionAndIDs);
                     cmd.Blit(gBufferWorldPositionsAndDepth, prevGBufferPositionsAndDepth);
-                    //if (bIndirectLighting) cmd.Blit(reprojectedIndirectBuffer, prevIndirectLightBuffer);
-                    //if (bDirectLighting || bAmbientOcclusion) cmd.Blit(reprojectedDirectBuffer, prevDirectLightBuffer);
                     cmd.Blit(reprojectedDirectBuffer, prevDirectLightBuffer);
                 }
                 cmd.EndSample("Reprojection");
@@ -375,38 +316,63 @@ public class CameraRenderer : MonoBehaviour
             }
             else
             {
-                //if (bIndirectLighting) cmd.Blit(indirectLightBuffer, reprojectedIndirectBuffer);
-                //if (bDirectLighting || bAmbientOcclusion) cmd.Blit(directLightBuffer, reprojectedDirectBuffer);
                 cmd.Blit(directLightBuffer, reprojectedDirectBuffer);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
 
             // variance - only if there is AO or direct lighting, not for indirect alone
-            if (bVariance && (bDirectLighting || bAmbientOcclusion))
+            /*if (bVariance && (bDirectLighting || bAmbientOcclusion))
             {
                 cmd.BeginSample("Variance");
-                //using (new ProfilingScope(cmd, new ProfilingSampler("Variance")))
                 {
-                    /*if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion))
+                    if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion))
                     {
-                        _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceWithIndirect");
-                        cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                        cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _IndirectBufferId, reprojectedIndirectBuffer);
+                        _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceIndirect");
                     }
                     else
                     {
-                        if (bIndirectLighting)
-                        {
-                            _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceIndirect");
-                            cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedIndirectBuffer);
-                        }
-                        else
-                        {
-                            _varianceKernelId = VarianceShader.FindKernel("EstimateVariance");
-                            cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                        }
-                    }*/
+                        _varianceKernelId = VarianceShader.FindKernel("EstimateVariance");
+                    }
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedDirectBuffer);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _outputTargetShaderId, varianceBuffer);
+                    cmd.DispatchCompute(VarianceShader, _varianceKernelId, varianceBuffer.rt.width / kernelSize, varianceBuffer.rt.height / kernelSize, 1);
+                }
+
+                if (!bFiltering && !bCombineAlbedoAndShadows)
+                {
+                    cmd.Blit(varianceBuffer, reprojectedDirectBuffer);
+                }
+                cmd.EndSample("Variance");
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+            }*/
+
+            if (bVariance && (bDirectLighting || bAmbientOcclusion))
+            {
+                cmd.BeginSample("Variance");
+                /*// Horizontal pass
+                {
+                    _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceHorizontal");
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, reprojectedDirectBuffer);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _outputTargetShaderId, varianceBuffer);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _outputTarget2ShaderId, varianceBuffer2);
+                    cmd.DispatchCompute(VarianceShader, _varianceKernelId, varianceBuffer.rt.width / 960, 1, 1);
+                }
+
+                // Vertical pass
+                {
+                    _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceVertical");
+                    if (bIndirectLighting)
+                        cmd.SetComputeIntParam(VarianceShader, _IndirectLightingOnId, 1);
+                    else
+                        cmd.SetComputeIntParam(VarianceShader, _IndirectLightingOnId, 0);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _outputTargetShaderId, varianceBuffer);
+                    cmd.SetComputeTextureParam(VarianceShader, _varianceKernelId, _ShadowInputId, varianceBuffer2);
+                    cmd.DispatchCompute(VarianceShader, _varianceKernelId, 1, varianceBuffer.rt.height / 540, 1);
+                }*/
+
+                {
                     if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion))
                     {
                         _varianceKernelId = VarianceShader.FindKernel("EstimateVarianceIndirect");
@@ -433,37 +399,11 @@ public class CameraRenderer : MonoBehaviour
             if (bFiltering && (bIndirectLighting || bSoftShadowsOn))
             {
                 cmd.BeginSample("Filter");
-                //using (new ProfilingScope(cmd, new ProfilingSampler("A Trous Filtering")))
-                //{
+                {
                     int iterations = 7;
                     for (int i = 0; i < iterations; i++)
                     {
                         // Shadow buffers
-                        /*if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion) && bSoftShadowsOn)
-                        {
-                            _filterKernelId = FilterShader.FindKernel("ATrousWithIndirect");
-                            cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                            cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _IndirectBufferId, reprojectedIndirectBuffer);
-                            cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _outputTargetShaderId, filterDirectBuffer);
-                            cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _outputTarget2ShaderId, filterIndirectBuffer);
-                            cmd.SetComputeIntParam(FilterShader, _WithIndirectOnId, 1);
-                        }
-                        else
-                        {
-                            _filterKernelId = FilterShader.FindKernel("ATrous");
-                            if (bIndirectLighting)
-                            {
-                                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedIndirectBuffer);
-                                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _outputTargetShaderId, filterIndirectBuffer);
-                                cmd.SetComputeIntParam(FilterShader, _WithIndirectOnId, 1);
-                            }
-                            else
-                            {
-                                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                                cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _outputTargetShaderId, filterDirectBuffer);
-                                cmd.SetComputeIntParam(FilterShader, _WithIndirectOnId, 0);
-                            }
-                        }*/
                         _filterKernelId = FilterShader.FindKernel("ATrous");
                         if (!bIndirectLighting)
                         {
@@ -478,8 +418,7 @@ public class CameraRenderer : MonoBehaviour
                             cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _outputTargetShaderId, filterDirectBuffer);
                             cmd.SetComputeIntParam(FilterShader, _WithIndirectOnId, 1);
                             cmd.SetComputeIntParam(FilterShader, _DirectLightingOnId, 0);
-                        }
-                        
+                        }                        
                         // GBuffer and variance
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferPositionsAndDepthId, gBufferWorldPositionsAndDepth);
                         cmd.SetComputeTextureParam(FilterShader, _filterKernelId, _GBufferNormalsAndMaterialsId, gBufferNormalsAndMaterials);
@@ -494,12 +433,10 @@ public class CameraRenderer : MonoBehaviour
                             cmd.SetComputeIntParam(FilterShader, _VarianceId, 0);
                         // Dispatch
                         cmd.DispatchCompute(FilterShader, _filterKernelId, filterDirectBuffer.rt.width / kernelSize, filterDirectBuffer.rt.height / kernelSize, 1);
-                        // Copy buffers for next iteration
-                        //if (bIndirectLighting) cmd.Blit(filterIndirectBuffer, reprojectedIndirectBuffer);
-                        //if (bDirectLighting || bAmbientOcclusion) cmd.Blit(filterDirectBuffer, reprojectedDirectBuffer);
+                        // Copy buffer for next iteration
                         cmd.Blit(filterDirectBuffer, reprojectedDirectBuffer);
                     }
-                //}
+                }
                 cmd.EndSample("Filter");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
@@ -508,27 +445,8 @@ public class CameraRenderer : MonoBehaviour
             // combine albedo and shadows
             if (bCombineAlbedoAndShadows)
             {
-                using (new ProfilingScope(cmd, new ProfilingSampler("Combine shadows and albedo")))
+                cmd.BeginSample("Combine shadows and albedo");
                 {
-                    /*if (bIndirectLighting && (bDirectLighting || bAmbientOcclusion))
-                    {
-                        _blitKernelId = BlitShader.FindKernel("BlitDirectAndIndirect");
-                        cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                        cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _IndirectBufferId, reprojectedIndirectBuffer);
-                    }
-                    else
-                    {
-                        if (bIndirectLighting)
-                        {
-                            _blitKernelId = BlitShader.FindKernel("BlitIndirect");
-                            cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _IndirectBufferId, reprojectedIndirectBuffer);
-                        }
-                        else
-                        {
-                            _blitKernelId = BlitShader.FindKernel("BlitDirect");
-                            cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ShadowInputId, reprojectedDirectBuffer);
-                        }
-                    }*/
                     // Get kernel and set shadow buffer
                     _blitKernelId = BlitShader.FindKernel("BlitFinal");
                     cmd.SetComputeTextureParam(BlitShader, _blitKernelId, _ShadowInputId, reprojectedDirectBuffer);
@@ -543,7 +461,7 @@ public class CameraRenderer : MonoBehaviour
                     cmd.DispatchCompute(BlitShader, _blitKernelId, blitBuffer.rt.width / kernelSize, blitBuffer.rt.height / kernelSize, 1);
                 }
                 cmd.Blit(blitBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
-
+                cmd.EndSample("Combine shadows and albedo");
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
@@ -554,39 +472,6 @@ public class CameraRenderer : MonoBehaviour
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
-
-            // volumetric lighting
-            /*if (bVolumetricLighting && bCombineAlbedoAndShadows)
-            {
-                using (new ProfilingScope(cmd, new ProfilingSampler("Volumetric lighting")))
-                {
-                    _volumetricLightingKernelId = VolumetricShader.FindKernel("VolumetricLighting");
-                    cmd.SetComputeTextureParam(VolumetricShader, _volumetricLightingKernelId, _ColorInputId, blitBuffer);
-                    cmd.SetComputeTextureParam(VolumetricShader, _volumetricLightingKernelId, _outputTargetShaderId, reprojectedDirectBuffer);
-                    cmd.SetComputeTextureParam(VolumetricShader, _volumetricLightingKernelId, _GBufferNormalsAndMaterialsId, gBufferNormalsAndMaterials);
-                    cmd.SetComputeMatrixParam(VolumetricShader, _ViewProjId, PrevViewProjMatrix);
-                    cmd.DispatchCompute(VolumetricShader, _volumetricLightingKernelId, blitBuffer.rt.width / 24, blitBuffer.rt.height / 24, 1);
-                }
-
-                cmd.Blit(reprojectedDirectBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
-
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
-            }
-            else if (bCombineAlbedoAndShadows)
-            {
-                cmd.Blit(blitBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
-
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
-            }
-            else
-            {
-                cmd.Blit(reprojectedDirectBuffer, BuiltinRenderTextureType.CameraTarget, Vector2.one, Vector2.zero);
-
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
-            */
         }
         finally
         {

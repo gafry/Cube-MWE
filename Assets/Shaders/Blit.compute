@@ -23,24 +23,29 @@ int IndirectLightingOn;
 int DirectLightingOn;
 int AOOn;
 
+// Calculates light intensity based on sun position
 float CalculateLightIntensity()
 {
-    float lightIntensity;
-    float nightValue = 0.5f;
-    float dayValue = 2.5f;
-    float nightProgress = 0.65f;
-    float dayProgress = 0.35f;
-    if (LightProgress < 0.5f)
-        lightIntensity = LightProgress * 2;
+    float maxIntensity = 2.5f;
+    if (LightProgress < 0.15f || LightProgress > 0.85f)
+        return maxIntensity;
+    else if (LightProgress < 0.25f)
+    {
+        float s = (LightProgress - 0.15f) / (0.25f - 0.15f);
+        return maxIntensity - s;
+    }
+    else if (LightProgress > 0.65f)
+    {
+        float s = (LightProgress - 0.65f) / (0.75f - 0.65f);
+        return maxIntensity - 1 + s;
+    }
     else
-        lightIntensity = (1.f - LightProgress) * 2;
-
-    if (LightProgress >= dayProgress && LightProgress <= nightProgress) lightIntensity = nightValue;
-    else if (LightProgress > nightProgress) lightIntensity = nightValue + ((dayValue - nightValue) / (1.0f - nightProgress)) * (LightProgress - nightProgress);
-    else if (LightProgress < dayProgress) lightIntensity = dayValue - (nightValue + ((dayValue - nightValue) / (dayProgress - 0.0f)) * (LightProgress - 0.0f)) + nightValue;
-    return lightIntensity;
+    {
+        return maxIntensity - 1;
+    }
 }
 
+// Final illumination 
 [numthreads(size_x, size_y, 1)]
 void BlitFinal(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -58,6 +63,7 @@ void BlitFinal(uint3 dispatchThreadId : SV_DispatchThreadID)
         BlitOutput[dispatchThreadId.xy] = shadow * (lightIntensity / 2) * color;
 }
 
+// Combine shadows together
 [numthreads(size_x, size_y, 1)]
 void BlitShadows(uint3 dispatchThreadId : SV_DispatchThreadID)
 {

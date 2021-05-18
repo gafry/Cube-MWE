@@ -2,15 +2,18 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+// Controls menu and saves/load options to/from file
 public class Settings : MonoBehaviour
 {
     private static Settings s_Instance;
+
+    private string saveFile = "./Assets/Options/Settings.json";
+    //private string saveFile = "./Save/Settings.json";
 
     [Header("World options")]
     public bool dayNightEfect = false;
     public bool loadWorld = false;
     public int WorldRadius = 13;
-    public bool volumetricLightingOn = false;
 
     [Header("Ray tracing options")]
     public bool groundTruthIfThereIsNoMotion = false;
@@ -26,14 +29,15 @@ public class Settings : MonoBehaviour
     [Space(20)]
 
     [Header("Runtime variables")]
-    public bool cameraMoved = false;
     public bool reprojectWithIDs = true;
     public bool isMenuOpen = false;
     private bool _isAdvancedOpen = false;
+    public int SunSpeed = 0;
     public float StartCoef;
     public float AdaptCoef;
     public float MinCoef;
     public float frameTime;
+    public int CameraSpeed;
     [Space(20)]
 
     [Header("UI")]
@@ -50,12 +54,12 @@ public class Settings : MonoBehaviour
     public Toggle ToggleWorldGen;
     public Toggle ToggleAlbedo;
     public Toggle ToggleSoftShadows;
-    public Toggle ToggleVolumetricLighting;
     public Slider SliderAO;
     public Slider SliderWorldRadius;
     public Slider SliderStartCoef;
     public Slider SliderMinCoef;
     public Slider SliderAdaptCoef;
+    public Slider SliderSunSpeed;
 
     public static Settings Instance
     {
@@ -71,6 +75,11 @@ public class Settings : MonoBehaviour
 
     public void Start()
     {
+#if UNITY_EDITOR
+        saveFile = "./Assets/Options/Settings.json";
+#else
+        saveFile = "./Save/Settings.json";
+#endif
         LoadFromFile();
         OptionMenu.enabled = false;
         AdvancedMenu.SetActive(false);
@@ -82,7 +91,11 @@ public class Settings : MonoBehaviour
     public void Exit()
     {
         SaveToFile();
-        //Application.Quit();
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+         Application.Quit();
+#endif
     }
 
     private void OnDestroy()
@@ -111,6 +124,11 @@ public class Settings : MonoBehaviour
         depthOfRecursion = (int)value;
     }
 
+    public void SetSunSpeed(float value)
+    {
+        SunSpeed = (int)value;
+    }
+
     public void SetStartCoef(float value)
     {
         StartCoef = value;
@@ -134,6 +152,11 @@ public class Settings : MonoBehaviour
     public void SetWorldRadius(float value)
     {
         WorldRadius = (int)value;
+    }
+
+    public void SetCameraSpeed(float value)
+    {
+        CameraSpeed = (int)value;
     }
 
     public void SetDirectLighting(bool b)
@@ -181,14 +204,9 @@ public class Settings : MonoBehaviour
         softShadowsOn = !softShadowsOn;
     }
 
-    public void SetVolumetricLighting(bool b)
-    {
-        volumetricLightingOn = !volumetricLightingOn;
-    }
-
     private void Update()
     {
-        if (Input.GetKeyDown("m"))
+        if (Input.GetKeyDown("m") || Input.GetKeyDown(KeyCode.Escape))
         {
             if (isMenuOpen)
             {
@@ -227,17 +245,18 @@ public class Settings : MonoBehaviour
         data.depthOfRecursion = depthOfRecursion;
         data.softShadowsOn = softShadowsOn;
         data.worldRadius = WorldRadius;
-        data.volumetricLighting = volumetricLightingOn;
+        data.sunSpeed = SunSpeed;
+        data.cameraSpeed = CameraSpeed;
 
         string json = JsonUtility.ToJson(data, true);
-        File.WriteAllText("./Assets/Options/Settings.json", json);
+        File.WriteAllText(saveFile, json);
     }
 
     private void LoadFromFile()
     {
-        if (!File.Exists("./Assets/Options/Settings.json"))
+        if (!File.Exists(saveFile))
             return;
-        string json = File.ReadAllText("./Assets/Options/Settings.json");
+        string json = File.ReadAllText(saveFile);
         SettingsData data = JsonUtility.FromJson<SettingsData>(json);
 
         AdaptCoef = data.AdaptCoef;
@@ -255,13 +274,16 @@ public class Settings : MonoBehaviour
         varianceOn = true;
         depthOfRecursion = data.depthOfRecursion;
         softShadowsOn = true;
-        volumetricLightingOn = true;
+        SunSpeed = data.sunSpeed;
+        CameraSpeed = data.cameraSpeed;
 
         SliderAdaptCoef.value = AdaptCoef;
         SliderMinCoef.value = MinCoef;
         SliderStartCoef.value = StartCoef;
         SliderAO.value = AO;
         SliderWorldRadius.value = WorldRadius;
+        SliderSunSpeed.value = SunSpeed;
+
         if (!data.combineAlbedoAndShadows)
             ToggleAlbedo.isOn = data.combineAlbedoAndShadows;
         if (!data.dayNightEfect)
@@ -280,7 +302,5 @@ public class Settings : MonoBehaviour
             ToggleWorldGen.isOn = data.loadWorld;
         if (!data.softShadowsOn)
             ToggleSoftShadows.isOn = data.softShadowsOn;
-        if (!data.volumetricLighting)
-            ToggleVolumetricLighting.isOn = data.volumetricLighting;
     }
 }

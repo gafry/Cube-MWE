@@ -8,6 +8,7 @@
         _BaseColorMapAO("BaseColorMapAO", 2D) = "white" {}
     }
 
+    // Just for scene inspector
     SubShader
     {
         Pass
@@ -133,7 +134,6 @@
                 texCoord0.y = texCoord0.y / 16;
                 textureColor = _BaseColorMap.SampleLevel(sampler_BaseColorMap, texCoord0, 0);
                 rayPayload.color = primary * 0.5f * textureColor;
-                //rayPayload.color = float3(0.0f, 0.0f, 0.0f);
             }
 
             ENDHLSL
@@ -194,21 +194,21 @@
                 float4 textureColor;
                 float4 textureAO;
                 float3 color = float3(1, 1, 1);
-                if (t > 7)
+                if (t > 6)
                 {
-                    if (t < 15)
+                    if (t < 10)
                     {
                         texCoord0.x = min(0.5f + (texCoord0.x / 2), 1.0f);
                         texCoord0.y = texCoord0.y / 2;
                         color = float3(1.5, 1, 1);
                     }
-                    else if (t < 22)
+                    else if (t < 15)
                     {
                         texCoord0.x = min(0.75f + (texCoord0.x / 4), 1.0f);
                         texCoord0.y = texCoord0.y / 4;
                         color = float3(1, 1.5, 1);
                     }
-                    else if (t < 60)
+                    else if (t < 50)
                     {
                         texCoord0.x = min(0.875f + (texCoord0.x / 8), 1.0f);
                         texCoord0.y = texCoord0.y / 8;
@@ -229,34 +229,6 @@
                 rayPayload.distance = t;
                 rayPayload.id = instanceID;
                 rayPayload.material = 1.0f;
-            }
-
-            ENDHLSL
-        }
-    }
-
-    SubShader
-    {
-        Pass
-        {
-            Name "CubeLights"
-            Tags { "LightMode" = "RayTracing" }
-
-            HLSLPROGRAM
-
-            #pragma target 3.5
-            #pragma raytracing test
-
-            #include "./Common.hlsl"
-
-            CBUFFER_START(UnityPerMaterial)
-            float4 _Color;
-            CBUFFER_END
-
-            [shader("closesthit")]
-            void ClosestHitShader(inout RayPayloadAO rayPayload : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
-            {
-                rayPayload.AOValue = 0.0;
             }
 
             ENDHLSL

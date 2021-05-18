@@ -20,5 +20,6 @@ public class SettingsData
     public float MinCoef;
     public bool softShadowsOn;
     public int worldRadius;
-    public bool volumetricLighting;
+    public int sunSpeed;
+    public int cameraSpeed;
 }

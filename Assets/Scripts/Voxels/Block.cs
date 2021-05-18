@@ -78,19 +78,20 @@ public struct BlockData
     {
         // bottom-left, top-left, top-right, bottom-right
         // float2x4 have to be written like { 0, 2, 4, 6, 1, 3, 5, 7}
+        // the values are changed by 0.01 because of artefacts
         [0] = new float2x4(0, 0, 0, 0, 0, 0, 0, 0),
-        [1] = new float2x4(new float2(0, 0.75f), new float2(0, 1), new float2(0.25f, 1), new float2(0.25f, 0.75f)),
-        [2] = new float2x4(new float2(0.25f, 0.75f), new float2(0.25f, 1), new float2(0.5f, 1), new float2(0.5f, 0.75f)),
-        [3] = new float2x4(new float2(0, 0.5f), new float2(0, 0.75f), new float2(0.25f, 0.75f), new float2(0.25f, 0.5f)),
-        [4] = new float2x4(new float2(0.25f, 0.5f), new float2(0.25f, 0.75f), new float2(0.5f, 0.75f), new float2(0.5f, 0.5f)),
-        [5] = new float2x4(new float2(0, 0.25f), new float2(0, 0.5f), new float2(0.25f, 0.5f), new float2(0.25f, 0.25f)),
-        [6] = new float2x4(new float2(0.25f, 0.25f), new float2(0.25f, 0.5f), new float2(0.5f, 0.5f), new float2(0.5f, 0.25f)),
-        [7] = new float2x4(new float2(0, 0), new float2(0, 0.25f), new float2(0.25f, 0.25f), new float2(0.25f, 0)),
-        [8] = new float2x4(new float2(0.25f, 0), new float2(0.25f, 0.25f), new float2(0.5f, 0.25f), new float2(0.5f, 0)),
-        [9] = new float2x4(new float2(0.5f, 0.75f), new float2(0.5f, 1), new float2(0.75f, 1), new float2(0.75f, 0.75f)),
-        [10] = new float2x4(new float2(0.75f, 0.75f), new float2(0.75f, 1), new float2(1, 1), new float2(1, 0.75f)),
-        [11] = new float2x4(new float2(0.5f, 0.5f), new float2(0.5f, 0.75f), new float2(0.75f, 0.75f), new float2(0.75f, 0.5f)),
-        [12] = new float2x4(new float2(0.75f, 0.5f), new float2(0.75f, 0.75f), new float2(1, 0.75f), new float2(1, 0.5f))
+        [1] = new float2x4(new float2(0.01f, 0.76f), new float2(0.01f, 0.99f), new float2(0.24f, 0.99f), new float2(0.24f, 0.76f)),
+        [2] = new float2x4(new float2(0.26f, 0.76f), new float2(0.26f, 0.99f), new float2(0.49f, 0.99f), new float2(0.49f, 0.76f)),
+        [3] = new float2x4(new float2(0.01f, 0.51f), new float2(0.01f, 0.74f), new float2(0.24f, 0.74f), new float2(0.24f, 0.51f)),
+        [4] = new float2x4(new float2(0.26f, 0.51f), new float2(0.26f, 0.74f), new float2(0.49f, 0.74f), new float2(0.49f, 0.51f)),
+        [5] = new float2x4(new float2(0.01f, 0.26f), new float2(0.01f, 0.49f), new float2(0.24f, 0.49f), new float2(0.24f, 0.26f)),
+        [6] = new float2x4(new float2(0.26f, 0.26f), new float2(0.26f, 0.49f), new float2(0.49f, 0.49f), new float2(0.49f, 0.26f)),
+        [7] = new float2x4(new float2(0.01f, 0.01f), new float2(0.01f, 0.24f), new float2(0.24f, 0.24f), new float2(0.24f, 0.01f)),
+        [8] = new float2x4(new float2(0.26f, 0.01f), new float2(0.26f, 0.24f), new float2(0.49f, 0.24f), new float2(0.49f, 0.01f)),
+        [9] = new float2x4(new float2(0.51f, 0.76f), new float2(0.51f, 0.99f), new float2(0.74f, 0.99f), new float2(0.74f, 0.76f)),
+        [10] = new float2x4(new float2(0.76f, 0.76f), new float2(0.76f, 0.99f), new float2(0.99f, 0.99f), new float2(0.99f, 0.76f)),
+        [11] = new float2x4(new float2(0.51f, 0.51f), new float2(0.51f, 0.74f), new float2(0.74f, 0.74f), new float2(0.74f, 0.51f)),
+        [12] = new float2x4(new float2(0.76f, 0.51f), new float2(0.76f, 0.74f), new float2(0.99f, 0.74f), new float2(0.99f, 0.51f))
     };
 }
 
@@ -110,7 +111,6 @@ public static class BlockUtils
     }
 
     public static int GetBlockIndex(int3 position) => position.y + position.z * 18 + position.x * 18 * 18;
-    //public static int GetBlockIndex(int3 position) => position.x + position.z * 16 + position.y * 16 * 16;
 
     public static int GetBlockIndex16x22x16(int3 position) => position.y + position.x * 22 + position.z * 22 * 16;
 

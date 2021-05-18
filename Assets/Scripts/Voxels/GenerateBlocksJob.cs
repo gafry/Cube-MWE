@@ -33,6 +33,7 @@ public struct GenerateBlocksJob : IJob
     {
         chunkData.isEmpty[0] = true;
 
+        // Fill chunkData based on Perlin noise and Voronoi for bioms
         for (int x = -1; x < 17; x++)
         {
             for (int z = -1; z < 17; z++)

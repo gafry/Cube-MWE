@@ -1,4 +1,5 @@
 #pragma kernel Reprojection
+
 // Group size
 #define size_x 24
 #define size_y 24
@@ -12,7 +13,6 @@ Texture2D<float4> CurrentFrame;
 Texture2D<float4> LastFrame;
 // Indirect buffers
 Texture2D<float4> IndirectBuffer;
-Texture2D<float4> PrevIndirectBuffer;
 // Previous frame GBuffer
 Texture2D<float4> PrevGBufferNormals;
 Texture2D<float4> PrevGBufferPosition;
@@ -24,9 +24,6 @@ RWTexture2D<float4> _OutputTarget2;
 float CameraX;
 float CameraY;
 bool WithID;
-float StartCoef;
-float AdaptCoef;
-float MinCoef;
 
 // Declare one thread for each texel of the current block size.
 [numthreads(size_x, size_y, 1)]
@@ -61,7 +58,7 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
     distanceSquared = heading.x * heading.x + heading.y * heading.y;
     float distanceCoords = sqrt(distanceSquared);
     
-    // check normals and object IDs
+    // check normals, distance and object IDs
     float3 prevNormalsAndIds = PrevGBufferNormals.Load(lastFrameCoord).xyz;
     float3 normalsCheck = abs(currentNormalsandIds - prevNormalsAndIds);
     if (normalsCheck.x < 0.005 && normalsCheck.y < 0.005 && normalsCheck.z < 0.005 && distance < 0.2f && ((id - prevId < 0.5f && WithID) || !WithID))
@@ -69,7 +66,6 @@ void Reprojection(uint3 dispatchThreadId : SV_DispatchThreadID)
         float coef = 0.8f;// max(0.8f - currentWorldPosition.w / MinCoef, 0.7f);
         float4 finalColor = (1.0f - coef) * currentFrameColor + coef * lastFrameColor;
         _OutputTarget[dispatchThreadId.xy] = finalColor;
-        //_OutputTarget[dispatchThreadId.xy] = float4(1, 0, 0, 1);
     }
     else
     {

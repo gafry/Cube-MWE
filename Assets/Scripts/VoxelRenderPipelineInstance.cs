@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 public class VoxelRenderPipelineInstance : RenderPipeline
 {
-    // Use this variable to a reference to the Render Pipeline Asset that was passed to the constructor
+    // Variable used to a reference to the Render Pipeline Asset that was passed to the constructor
     private VoxelRenderPipelineAsset _renderPipelineAsset;
     private Stopwatch st = new Stopwatch();
 
@@ -18,28 +18,24 @@ public class VoxelRenderPipelineInstance : RenderPipeline
     private bool bFiltering;
     private bool bReprojectWithIDs;
     private bool bCombineAlbedoAndShadows;
-    private bool bDayNightEfect;
     private bool bSoftShadowsOn;
-    private bool bVolumetricLightingOn;
 
     // Camera renderer
     CameraRenderer renderer = new CameraRenderer();
 
-    // The constructor has an instance of the ExampleRenderPipelineAsset class as its parameter.
+    // The constructor has an instance of the ExampleRenderPipelineAsset class as its parameter
     public VoxelRenderPipelineInstance(VoxelRenderPipelineAsset asset)
     {
         _renderPipelineAsset = asset;
         st.Start();
     }
 
-    // Unity calls this method once per frame for each CameraType that is currently rendering.
+    // Unity calls this method once per frame for each CameraType that is currently rendering
     protected override void Render(ScriptableRenderContext context, Camera[] cameras)
     {
         // Measure time between frames
         st.Stop();
-        //Settings.Instance.frameTime = st.ElapsedMilliseconds;
-        Settings.Instance.frameTime = st.ElapsedTicks * ((1000L * 1000L * 1000L) / Stopwatch.Frequency);
-        SaveToFile(Settings.Instance.frameTime);
+        Settings.Instance.frameTime = st.ElapsedMilliseconds;
         st = new Stopwatch();
         st.Start();
 
@@ -51,27 +47,17 @@ public class VoxelRenderPipelineInstance : RenderPipeline
         bFiltering = Settings.Instance.filteringOn;
         bReprojectWithIDs = Settings.Instance.reprojectWithIDs;
         bCombineAlbedoAndShadows = Settings.Instance.combineAlbedoAndShadows;
-        bDayNightEfect = Settings.Instance.dayNightEfect;
         bSoftShadowsOn = Settings.Instance.softShadowsOn;
-        bVolumetricLightingOn = Settings.Instance.volumetricLightingOn;
 
         // Execute Render function for each camera
         foreach (Camera camera in cameras)
         { 
             renderer.Render(context, camera, _renderPipelineAsset.MotionVectorShader, _renderPipelineAsset.ReprojectionShader, _renderPipelineAsset.BlitShader,
                 _renderPipelineAsset.FilterShader, _renderPipelineAsset.VarianceShader, bAmbientOcclusion, bDirectLighting, bIndirectLighting, bReprojection,
-                bVariance, bFiltering, bReprojectWithIDs, bCombineAlbedoAndShadows, bDayNightEfect, bSoftShadowsOn, _renderPipelineAsset.VolumetricShader,
-                bVolumetricLightingOn);
+                bVariance, bFiltering, bReprojectWithIDs, bCombineAlbedoAndShadows, bSoftShadowsOn);
         }
 
         // Tell the Scriptable Render Context to tell the graphics API to perform the scheduled commands
         context.Submit();
-    }
-
-    private void SaveToFile(float time)
-    {
-        string text = time + "\n";
-        
-        File.AppendAllText("./Assets/Options/Time.txt", text);
     }
 }

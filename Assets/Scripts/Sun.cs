@@ -12,6 +12,8 @@ public class Sun : MonoBehaviour
 
     void Update()
     {
+        speed = Settings.Instance.SunSpeed;
+
         if (Settings.Instance.dayNightEfect)
         {
             time += Time.deltaTime - lastTime;

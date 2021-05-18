@@ -2,36 +2,21 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
-/// <summary>
-/// The pipeline manager.
-/// </summary>
 public class PipelineManager : MonoBehaviour
 {
-    /// <summary>
-    /// The new render pipeline asset.
-    /// </summary>
     public RenderPipelineAsset renderPipelineAsset;
-
-    /// <summary>
-    /// The old (default) render pipeline asset.
-    /// </summary>
     private RenderPipelineAsset _defaultRenderPipelineAsset;
 
-    /// <summary>
-    /// On Start, set render pipeline asset to ray tracing one.
-    /// </summary>
+    // On Start, set render pipeline asset to ray tracing one.
     public IEnumerator Start()
     {
         yield return new WaitForEndOfFrame();
 
         _defaultRenderPipelineAsset = GraphicsSettings.renderPipelineAsset;
         GraphicsSettings.renderPipelineAsset = renderPipelineAsset;
-        //Application.targetFrameRate = 60;
     }
 
-    /// <summary>
-    /// OnDestroy set render pipeline asset back to default.
-    /// </summary>
+    // OnDestroy set render pipeline asset back to default.
     public void OnDestroy()
     {
         GraphicsSettings.renderPipelineAsset = _defaultRenderPipelineAsset;
